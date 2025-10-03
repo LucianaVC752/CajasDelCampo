@@ -1,0 +1,33 @@
+-Escanear el codigo para entender como funciona
+-rectificar conexión de prueba con SQLITE
+-si hay problemas con la base de datos, borrarla y volver a crearla
+-borrar todo los archivos que no sean necesarios 
+-probar el codigo al menos 3 ocasiones para probar que todo esté en orden
+(cuando me refiero a probar es asegurarse de que las APIs funcionen correctamente)
+-Escribir en la zona de **HECHO** que pasos se hicieron y en la zona de de **FALTANTES** que todavía hay que hacer
+
+**HECHO **
+- ✅ Escaneado el código para entender cómo funciona
+- ✅ Rectificada la conexión de prueba con SQLITE
+- ✅ Solucionados problemas con la base de datos (borrada y recreada)
+- ✅ Corregido problema con ENUM en SQLite (cambiado a TEXT con validación)
+- ✅ Probado el código 3+ veces para verificar que las APIs funcionen correctamente:
+  - Health endpoint: ✅ Funcionando
+  - Products API: ✅ Funcionando
+  - Farmers API: ✅ Funcionando
+  - Users API: ✅ Funcionando (requiere autenticación)
+  - Auth API: ✅ Funcionando (login exitoso)
+- ✅ Verificado que no hay archivos innecesarios (proyecto bien organizado)
+- ✅ Corregido error en /farmers: farmer.specialties.map is not a function
+  - Problema: El campo specialties se almacenaba como string JSON en la base de datos
+  - Solución: Agregado getter/setter en el modelo Farmer para parsear automáticamente el JSON
+  - Resultado: Las specialties ahora se devuelven como array y el frontend funciona correctamente
+- ✅ Verificación de APIs realizada 3 veces exitosamente:
+  - Health API: ✅ Funcionando (Status 200)
+  - Farmers API: ✅ Funcionando (2 farmers con specialties como array)
+  - Products API: ✅ Funcionando (3 products)
+- ✅ Archivos innecesarios eliminados (test-apis.js removido)
+
+**FALTANTES**
+- ✅ Todas las tareas han sido completadas exitosamente
+
