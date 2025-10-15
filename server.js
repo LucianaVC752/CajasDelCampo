@@ -80,6 +80,30 @@ const startServer = async () => {
     await sequelize.authenticate();
     console.log('Database connection established successfully.');
     
+    // Ensure subscriptions table has is_hidden column without altering other tables
+    try {
+      const [columns] = await sequelize.query("PRAGMA table_info('subscriptions');");
+      const hasIsHidden = Array.isArray(columns) && columns.some((c) => c.name === 'is_hidden');
+      if (!hasIsHidden) {
+        await sequelize.query("ALTER TABLE subscriptions ADD COLUMN is_hidden TINYINT(1) NOT NULL DEFAULT 0;");
+        console.log('Added is_hidden column to subscriptions table.');
+      }
+    } catch (migrationError) {
+      console.warn('Skipping is_hidden migration check:', migrationError.message);
+    }
+
+    // Ensure products table has image_data column for storing images in SQLite
+    try {
+      const [productColumns] = await sequelize.query("PRAGMA table_info('products');");
+      const hasImageData = Array.isArray(productColumns) && productColumns.some((c) => c.name === 'image_data');
+      if (!hasImageData) {
+        await sequelize.query("ALTER TABLE products ADD COLUMN image_data BLOB;");
+        console.log('Added image_data column to products table.');
+      }
+    } catch (migrationError) {
+      console.warn('Skipping image_data migration check:', migrationError.message);
+    }
+
     // Sync database (create tables if they don't exist)
     await sequelize.sync({ force: false });
     console.log('Database synchronized successfully.');

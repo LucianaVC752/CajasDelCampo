@@ -46,6 +46,10 @@ const Product = sequelize.define('Product', {
     type: DataTypes.STRING(500),
     allowNull: true
   },
+  image_data: {
+    type: DataTypes.BLOB('long'),
+    allowNull: true
+  },
   category: {
     type: DataTypes.STRING(50),
     allowNull: true,

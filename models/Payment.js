@@ -23,7 +23,7 @@ const Payment = sequelize.define('Payment', {
     }
   },
   payment_method: {
-    type: DataTypes.ENUM('credit_card', 'debit_card', 'pse', 'google_pay', 'cash', 'bank_transfer'),
+    type: DataTypes.ENUM('credit_card', 'debit_card', 'cash_on_delivery', 'pse', 'google_pay', 'bank_transfer'),
     allowNull: false
   },
   transaction_id: {

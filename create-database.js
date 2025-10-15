@@ -143,7 +143,8 @@ async function createDatabase() {
             status: 'active',
             price: 15000,
             box_size: 'medium',
-            custom_preferences: JSON.stringify({})
+            custom_preferences: JSON.stringify({}),
+            paid: false
           },
           {
             user_id: testUser.user_id,
@@ -152,7 +153,8 @@ async function createDatabase() {
             status: 'active',
             price: 25000,
             box_size: 'large',
-            custom_preferences: JSON.stringify({})
+            custom_preferences: JSON.stringify({}),
+            paid: false
           }
         ]);
         console.log('✅ Suscripciones creadas:', subscriptions.length);

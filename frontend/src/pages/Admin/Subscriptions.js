@@ -107,6 +107,7 @@ const AdminSubscriptions = () => {
       case 'weekly': return 'Semanal';
       case 'biweekly': return 'Quincenal';
       case 'monthly': return 'Mensual';
+      case 'quarterly': return 'Cada 3 meses';
       default: return frequency;
     }
   };

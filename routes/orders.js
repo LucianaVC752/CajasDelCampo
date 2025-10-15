@@ -124,13 +124,24 @@ router.post('/from-subscription/:subscriptionId', authenticateToken, validateId(
       return res.status(404).json({ message: 'Active subscription not found' });
     }
 
-    // Get address
-    const address = await Address.findOne({
-      where: {
-        address_id: address_id || subscription.user_id, // Use default address if not specified
-        user_id: req.user.user_id
-      }
-    });
+    // Get address - use provided address_id or find default address
+    let address;
+    if (address_id) {
+      address = await Address.findOne({
+        where: {
+          address_id: address_id,
+          user_id: req.user.user_id
+        }
+      });
+    } else {
+      // Find default address
+      address = await Address.findOne({
+        where: {
+          user_id: req.user.user_id,
+          is_default: true
+        }
+      });
+    }
 
     if (!address) {
       return res.status(404).json({ message: 'Address not found' });
@@ -147,7 +158,8 @@ router.post('/from-subscription/:subscriptionId', authenticateToken, validateId(
     const subtotal = products.reduce((sum, product) => sum + (product.price * product.quantity), 0);
     const taxAmount = subtotal * 0.19; // 19% IVA
     const shippingCost = 0; // Free shipping for subscriptions
-    const totalAmount = subtotal + taxAmount + shippingCost;
+    // Use the subscription price directly instead of calculating from products
+    const totalAmount = subscription.price;
 
     // Create order
     const order = await Order.create({

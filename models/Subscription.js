@@ -24,7 +24,7 @@ const Subscription = sequelize.define('Subscription', {
     }
   },
   frequency: {
-    type: DataTypes.ENUM('weekly', 'biweekly', 'monthly'),
+    type: DataTypes.ENUM('weekly', 'biweekly', 'monthly', 'quarterly'),
     allowNull: false,
     defaultValue: 'monthly'
   },
@@ -49,6 +49,17 @@ const Subscription = sequelize.define('Subscription', {
       min: 0
     }
   },
+  is_hidden: {
+    type: DataTypes.BOOLEAN,
+    allowNull: false,
+    defaultValue: false
+  },
+  // El campo paid se manejará a nivel de aplicación, no en la base de datos
+  // paid: {
+  //   type: DataTypes.BOOLEAN,
+  //   allowNull: false,
+  //   defaultValue: false
+  // },
   box_size: {
     type: DataTypes.ENUM('small', 'medium', 'large'),
     allowNull: false,

@@ -9,6 +9,9 @@ const sequelize = new Sequelize({
     timestamps: true,
     underscored: true,
     freezeTableName: true
+  },
+  dialectOptions: {
+    charset: 'utf8mb4'
   }
 });
 

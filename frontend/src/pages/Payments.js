@@ -43,23 +43,46 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import StripePayment from '../components/Payment/StripePayment';
+import { useLocation } from 'react-router-dom';
 
 const Payments = () => {
   const { user } = useAuth();
+  const location = useLocation();
   const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [openPayment, setOpenPayment] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [paymentData, setPaymentData] = useState({
-    payment_method: 'credit_card',
+    payment_method: 'cash_on_delivery',
     amount: 0,
+    shipping_address: {
+      address_line1: '',
+      city: '',
+      department: '',
+      postal_code: '',
+      contact_name: '',
+      contact_phone: ''
+    }
   });
   const [showStripeForm, setShowStripeForm] = useState(false);
+  const [subscriptionContext, setSubscriptionContext] = useState(null);
 
   useEffect(() => {
     fetchPayments();
-  }, []);
+    
+    // Verificar si hay un order_id en la URL para abrir automáticamente el diálogo de pago
+    const urlParams = new URLSearchParams(location.search);
+    const orderId = urlParams.get('order_id');
+    const subscriptionId = urlParams.get('subscription_id');
+    
+    if (orderId) {
+      handleOpenPaymentFromOrderId(orderId);
+    }
+    if (subscriptionId) {
+      handleOpenPaymentForSubscription(subscriptionId);
+    }
+  }, [location.search]);
 
   const fetchPayments = async () => {
     setLoading(true);
@@ -79,19 +102,109 @@ const Payments = () => {
   const handleOpenPayment = (order) => {
     setSelectedOrder(order);
     setPaymentData({
-      payment_method: 'credit_card',
+      payment_method: 'cash_on_delivery',
       amount: order.total_amount,
+      shipping_address: {
+        address_line1: order.address?.address_line1 || '',
+        city: order.address?.city || '',
+        department: order.address?.department || '',
+        postal_code: order.address?.postal_code || '',
+        contact_name: order.address?.contact_name || user?.name || '',
+        contact_phone: order.address?.contact_phone || user?.phone_number || ''
+      }
     });
     setOpenPayment(true);
+  };
+
+  const handleOpenPaymentFromOrderId = async (orderId) => {
+    try {
+      // Obtener los detalles de la orden
+      const response = await api.get(`/orders/${orderId}`);
+      const order = response.data.order;
+
+      // Prellenar datos y abrir diálogo (sin procesar automáticamente)
+      setSelectedOrder(order);
+      setPaymentData({
+        payment_method: 'cash_on_delivery',
+        amount: order.total_amount,
+        shipping_address: {
+          address_line1: order.address?.address_line1 || '',
+          city: order.address?.city || '',
+          department: order.address?.department || '',
+          postal_code: order.address?.postal_code || '',
+          contact_name: order.address?.contact_name || user?.name || '',
+          contact_phone: order.address?.contact_phone || user?.phone_number || ''
+        }
+      });
+      setOpenPayment(true);
+    } catch (error) {
+      console.error('Error fetching order:', error);
+      toast.error('Error al cargar los detalles de la orden');
+    }
+  };
+
+  // Abrir flujo de pago para una suscripción (sin orden previa)
+  const handleOpenPaymentForSubscription = async (subscriptionId) => {
+    try {
+      const subRes = await api.get(`/subscriptions/${subscriptionId}`);
+      const subscription = subRes.data.subscription;
+
+      // Intentar prellenar con dirección principal del usuario
+      let shipping = {
+        address_line1: '',
+        city: '',
+        department: '',
+        postal_code: '',
+        contact_name: user?.name || '',
+        contact_phone: user?.phone_number || ''
+      };
+      try {
+        const profileRes = await api.get('/users/profile');
+        const defaultAddress = profileRes.data.user?.addresses?.[0];
+        if (defaultAddress) {
+          shipping = {
+            address_line1: defaultAddress.address_line1 || '',
+            city: defaultAddress.city || '',
+            department: defaultAddress.department || '',
+            postal_code: defaultAddress.postal_code || '',
+            contact_name: defaultAddress.contact_name || user?.name || '',
+            contact_phone: defaultAddress.contact_phone || user?.phone_number || ''
+          };
+        }
+      } catch (e) {
+        // Ignorar errores del perfil
+      }
+
+      setSelectedOrder(null);
+      setSubscriptionContext({ id: subscriptionId, price: subscription.price });
+      setPaymentData({
+        payment_method: 'cash_on_delivery',
+        amount: subscription.price,
+        shipping_address: shipping,
+      });
+      setOpenPayment(true);
+    } catch (error) {
+      console.error('Error fetching subscription:', error);
+      toast.error('Error al cargar la suscripción para el pago');
+    }
   };
 
   const handleClosePayment = () => {
     setOpenPayment(false);
     setSelectedOrder(null);
     setShowStripeForm(false);
+    setSubscriptionContext(null);
     setPaymentData({
-      payment_method: 'credit_card',
+      payment_method: 'cash_on_delivery',
       amount: 0,
+      shipping_address: {
+        address_line1: '',
+        city: '',
+        department: '',
+        postal_code: '',
+        contact_name: '',
+        contact_phone: ''
+      }
     });
   };
 
@@ -104,17 +217,32 @@ const Payments = () => {
   };
 
   const handleProcessPayment = async () => {
-    if (!selectedOrder) return;
+    // Validar datos de envío para contraentrega
+    const requiredFields = ['address_line1', 'city', 'department', 'contact_name', 'contact_phone'];
+    const missingFields = requiredFields.filter(field => !paymentData.shipping_address[field]);
+    if (missingFields.length > 0) {
+      toast.error('Por favor completa todos los campos de envío requeridos');
+      return;
+    }
 
-    if (paymentData.payment_method === 'credit_card') {
-      setShowStripeForm(true);
-    } else {
+    // Caso 1: pago de orden ya existente
+    if (selectedOrder) {
       try {
         await api.post('/payments', {
           order_id: selectedOrder.order_id,
-          amount: paymentData.amount,
-          payment_method: paymentData.payment_method
+          amount: selectedOrder.total_amount,
+          payment_method: 'cash_on_delivery',
+          shipping_address: paymentData.shipping_address,
         });
+
+        // Actualizar suscripción si aplica
+        if (selectedOrder.subscription_id) {
+          try {
+            await api.patch(`/subscriptions/${selectedOrder.subscription_id}/mark-as-paid`);
+          } catch (subError) {
+            console.error('Error actualizando suscripción:', subError);
+          }
+        }
         toast.success('Pago procesado exitosamente');
         handleClosePayment();
         fetchPayments();
@@ -122,8 +250,54 @@ const Payments = () => {
         console.error('Error processing payment:', error);
         toast.error(error.response?.data?.message || 'Error al procesar el pago');
       }
+      return;
     }
+
+    // Caso 2: pago de suscripción (crear orden y luego pago)
+    if (subscriptionContext?.id) {
+      try {
+        const addressRes = await api.post('/users/addresses', {
+          ...paymentData.shipping_address,
+          is_default: true,
+        });
+        const addressId = addressRes.data.address.address_id;
+
+        const orderRes = await api.post(`/orders/from-subscription/${subscriptionContext.id}`, {
+          address_id: addressId,
+          special_instructions: 'Pago de suscripción',
+        });
+        const order = orderRes.data.order;
+
+        await api.post('/payments', {
+          order_id: order.order_id,
+          amount: order.total_amount,
+          payment_method: 'cash_on_delivery',
+          shipping_address: paymentData.shipping_address,
+        });
+
+        // Marcar suscripción como pagada
+        if (order.subscription_id) {
+          try {
+            await api.patch(`/subscriptions/${order.subscription_id}/mark-as-paid`);
+          } catch (subError) {
+            console.error('Error actualizando suscripción:', subError);
+          }
+        }
+
+        toast.success('Pago contraentrega registrado y suscripción procesada');
+        handleClosePayment();
+        fetchPayments();
+      } catch (error) {
+        console.error('Error processing subscription payment:', error);
+        toast.error(error.response?.data?.message || 'Error al procesar el pago de suscripción');
+      }
+      return;
+    }
+
+    toast.error('No hay información suficiente para procesar el pago');
   };
+
+  
 
   const handleStripeSuccess = (paymentIntent) => {
     toast.success('Pago procesado exitosamente');
@@ -156,6 +330,7 @@ const Payments = () => {
   const getPaymentMethodIcon = (method) => {
     switch (method) {
       case 'credit_card': return <CreditCard />;
+      case 'cash_on_delivery': return <Payment />;
       case 'pse': return <AccountBalance />;
       case 'google_pay': return <Google />;
       default: return <Payment />;
@@ -224,6 +399,13 @@ const Payments = () => {
               <Typography variant="body2" color="text.secondary" paragraph>
                 Los pagos aparecerán aquí una vez que proceses una suscripción
               </Typography>
+              {openPayment && (
+                <Alert severity="info" sx={{ mt: 2 }}>
+                  <Typography variant="body2">
+                    Se ha abierto automáticamente el formulario de pago para tu orden.
+                  </Typography>
+                </Alert>
+              )}
             </CardContent>
           </Card>
         ) : (
@@ -254,6 +436,7 @@ const Payments = () => {
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                         {getPaymentMethodIcon(payment.payment_method)}
                         {payment.payment_method === 'credit_card' ? 'Tarjeta' :
+                         payment.payment_method === 'cash_on_delivery' ? 'Contraentrega' :
                          payment.payment_method === 'pse' ? 'PSE' :
                          payment.payment_method === 'google_pay' ? 'Google Pay' :
                          payment.payment_method}
@@ -288,34 +471,135 @@ const Payments = () => {
         <Dialog open={openPayment} onClose={handleClosePayment} maxWidth="md" fullWidth>
           <DialogTitle>Procesar Pago</DialogTitle>
           <DialogContent>
-            {selectedOrder && !showStripeForm && (
+            {!showStripeForm && (
               <Box sx={{ pt: 1 }}>
-                <Typography variant="h6" gutterBottom>
-                  Pedido #{selectedOrder.order_number || selectedOrder.order_id}
-                </Typography>
-                <Typography variant="body1" gutterBottom>
-                  Total: {formatPrice(selectedOrder.total_amount)}
-                </Typography>
+                {selectedOrder ? (
+                  <>
+                    <Typography variant="h6" gutterBottom>
+                      Pedido #{selectedOrder.order_number || selectedOrder.order_id}
+                    </Typography>
+                    <Typography variant="body1" gutterBottom>
+                      Total: {formatPrice(selectedOrder.total_amount)}
+                    </Typography>
+                  </>
+                ) : subscriptionContext ? (
+                  <>
+                    <Typography variant="h6" gutterBottom>
+                      Suscripción #{subscriptionContext.id}
+                    </Typography>
+                    <Typography variant="body1" gutterBottom>
+                      Total: {formatPrice(subscriptionContext.price)}
+                    </Typography>
+                  </>
+                ) : null}
                 
-                <FormControl fullWidth sx={{ mt: 2 }}>
-                  <InputLabel>Método de Pago</InputLabel>
-                  <Select
-                    name="payment_method"
-                    value={paymentData.payment_method}
-                    onChange={handlePaymentChange}
-                    label="Método de Pago"
-                  >
-                    <MenuItem value="credit_card">Tarjeta de Crédito/Débito</MenuItem>
-                    <MenuItem value="pse">PSE</MenuItem>
-                    <MenuItem value="google_pay">Google Pay</MenuItem>
-                  </Select>
-                </FormControl>
+                {/* Selector de método eliminado: siempre Contraentrega */}
 
-                {paymentData.payment_method === 'credit_card' && (
-                  <Alert severity="info" sx={{ mt: 2 }}>
-                    Serás redirigido a Stripe para completar el pago de forma segura
-                  </Alert>
-                )}
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="h6" gutterBottom>
+                      Datos de Envío
+                    </Typography>
+                    <Grid container spacing={2}>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Dirección"
+                          name="address_line1"
+                          value={paymentData.shipping_address.address_line1}
+                          onChange={(e) => setPaymentData({
+                            ...paymentData,
+                            shipping_address: {
+                              ...paymentData.shipping_address,
+                              address_line1: e.target.value
+                            }
+                          })}
+                          required
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          fullWidth
+                          label="Ciudad"
+                          name="city"
+                          value={paymentData.shipping_address.city}
+                          onChange={(e) => setPaymentData({
+                            ...paymentData,
+                            shipping_address: {
+                              ...paymentData.shipping_address,
+                              city: e.target.value
+                            }
+                          })}
+                          required
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          fullWidth
+                          label="Departamento"
+                          name="department"
+                          value={paymentData.shipping_address.department}
+                          onChange={(e) => setPaymentData({
+                            ...paymentData,
+                            shipping_address: {
+                              ...paymentData.shipping_address,
+                              department: e.target.value
+                            }
+                          })}
+                          required
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          fullWidth
+                          label="Código Postal"
+                          name="postal_code"
+                          value={paymentData.shipping_address.postal_code}
+                          onChange={(e) => setPaymentData({
+                            ...paymentData,
+                            shipping_address: {
+                              ...paymentData.shipping_address,
+                              postal_code: e.target.value
+                            }
+                          })}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6}>
+                        <TextField
+                          fullWidth
+                          label="Nombre de Contacto"
+                          name="contact_name"
+                          value={paymentData.shipping_address.contact_name}
+                          onChange={(e) => setPaymentData({
+                            ...paymentData,
+                            shipping_address: {
+                              ...paymentData.shipping_address,
+                              contact_name: e.target.value
+                            }
+                          })}
+                          required
+                        />
+                      </Grid>
+                      <Grid item xs={12}>
+                        <TextField
+                          fullWidth
+                          label="Teléfono de Contacto"
+                          name="contact_phone"
+                          value={paymentData.shipping_address.contact_phone}
+                          onChange={(e) => setPaymentData({
+                            ...paymentData,
+                            shipping_address: {
+                              ...paymentData.shipping_address,
+                              contact_phone: e.target.value
+                            }
+                          })}
+                          required
+                        />
+                      </Grid>
+                    </Grid>
+                    <Alert severity="info" sx={{ mt: 2 }}>
+                      Pagarás en efectivo al momento de recibir tu pedido
+                    </Alert>
+                  </Box>
               </Box>
             )}
             

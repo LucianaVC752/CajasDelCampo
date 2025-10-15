@@ -27,8 +27,15 @@ import {
   Star,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
+import { useAuth } from '../contexts/AuthContext';
+import api from '../services/api';
+import toast from 'react-hot-toast';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 const Addresses = () => {
+  const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [open, setOpen] = useState(false);
@@ -44,29 +51,26 @@ const Addresses = () => {
     is_default: false,
   });
 
+  // Check if user came from payment flow
+  const urlParams = new URLSearchParams(location.search);
+  const fromPayment = location.state?.fromPayment || urlParams.get('fromPayment') === 'true';
+  const subscriptionId = location.state?.subscriptionId || urlParams.get('subscriptionId');
+
   useEffect(() => {
     fetchAddresses();
   }, []);
 
   const fetchAddresses = async () => {
     setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setAddresses([
-        {
-          address_id: 1,
-          address_line1: 'Calle 123 #45-67',
-          address_line2: 'Apto 201',
-          city: 'Bogotá',
-          department: 'Cundinamarca',
-          postal_code: '110111',
-          contact_name: 'Juan Pérez',
-          contact_phone: '+57 300 123 4567',
-          is_default: true,
-        },
-      ]);
+    try {
+      const response = await api.get('/users/addresses');
+      setAddresses(response.data.addresses);
+    } catch (error) {
+      console.error('Error fetching addresses:', error);
+      toast.error('Error al cargar las direcciones');
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
   const handleOpen = (address = null) => {
@@ -104,30 +108,78 @@ const Addresses = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // Simulate API call
-    setTimeout(() => {
+    
+    // Validación básica en el frontend
+    if (!formData.address_line1 || !formData.city || !formData.department) {
+      toast.error('Por favor completa todos los campos obligatorios');
+      return;
+    }
+    
+    try {
       if (editingAddress) {
-        setAddresses(addresses.map(addr => 
-          addr.address_id === editingAddress.address_id ? formData : addr
-        ));
+        await api.put(`/users/addresses/${editingAddress.address_id}`, formData);
+        toast.success('Dirección actualizada exitosamente');
       } else {
-        setAddresses([...addresses, { ...formData, address_id: Date.now() }]);
+        await api.post('/users/addresses', formData);
+        toast.success('Dirección creada exitosamente');
       }
+      fetchAddresses();
       handleClose();
-    }, 1000);
+    } catch (error) {
+      console.error('Error saving address:', error);
+      console.error('Error details:', error.response?.data);
+      
+      // Mostrar errores de validación específicos
+      if (error.response?.data?.errors) {
+        const errorMessages = error.response.data.errors.map(err => err.msg).join(', ');
+        toast.error(`Errores de validación: ${errorMessages}`);
+      } else {
+        toast.error(error.response?.data?.message || 'Error al guardar la dirección');
+      }
+    }
   };
 
   const handleDelete = async (addressId) => {
     if (window.confirm('¿Estás seguro de que quieres eliminar esta dirección?')) {
-      setAddresses(addresses.filter(addr => addr.address_id !== addressId));
+      try {
+        await api.delete(`/users/addresses/${addressId}`);
+        toast.success('Dirección eliminada exitosamente');
+        fetchAddresses();
+      } catch (error) {
+        console.error('Error deleting address:', error);
+        toast.error('Error al eliminar la dirección');
+      }
     }
   };
 
   const handleSetDefault = async (addressId) => {
-    setAddresses(addresses.map(addr => ({
-      ...addr,
-      is_default: addr.address_id === addressId
-    })));
+    try {
+      await api.patch(`/users/addresses/${addressId}/default`);
+      toast.success('Dirección principal actualizada');
+      fetchAddresses();
+    } catch (error) {
+      console.error('Error setting default address:', error);
+      toast.error('Error al establecer dirección principal');
+    }
+  };
+
+  const handleContinueToPayment = async () => {
+    if (subscriptionId) {
+      try {
+        // Crear orden para la suscripción
+        const response = await api.post(`/orders/from-subscription/${subscriptionId}`, {
+          special_instructions: 'Pago de suscripción'
+        });
+        
+        // Redirigir a la vista de pagos
+        navigate(`/payments?order_id=${response.data.order.order_id}`);
+      } catch (error) {
+        console.error('Error creating order:', error);
+        toast.error(error.response?.data?.message || 'Error al crear la orden de pago');
+      }
+    } else {
+      navigate('/payments');
+    }
   };
 
   if (loading) {
@@ -152,14 +204,34 @@ const Addresses = () => {
           <Typography variant="h4" component="h1" sx={{ fontWeight: 600 }}>
             Mis Direcciones
           </Typography>
-          <Button
-            variant="contained"
-            startIcon={<Add />}
-            onClick={() => handleOpen()}
-          >
-            Agregar Dirección
-          </Button>
+          <Box sx={{ display: 'flex', gap: 2 }}>
+            {fromPayment && addresses.some(addr => addr.is_default) && (
+              <Button
+                variant="contained"
+                color="success"
+                onClick={handleContinueToPayment}
+              >
+                Continuar con el Pago
+              </Button>
+            )}
+            <Button
+              variant="contained"
+              startIcon={<Add />}
+              onClick={() => handleOpen()}
+            >
+              Agregar Dirección
+            </Button>
+          </Box>
         </Box>
+
+        {fromPayment && (
+          <Alert severity="info" sx={{ mb: 3 }}>
+            <Typography variant="body2">
+              Necesitas configurar una dirección de envío para continuar con el pago de tu suscripción.
+              {addresses.some(addr => addr.is_default) && ' Ya tienes una dirección principal configurada, puedes continuar con el pago.'}
+            </Typography>
+          </Alert>
+        )}
 
         {addresses.length === 0 ? (
           <Card>

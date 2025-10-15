@@ -109,6 +109,7 @@ export const subscriptionsAPI = {
   pauseSubscription: (id, data) => api.patch(`/subscriptions/${id}/pause`, data),
   resumeSubscription: (id) => api.patch(`/subscriptions/${id}/resume`),
   cancelSubscription: (id, data) => api.patch(`/subscriptions/${id}/cancel`, data),
+  hideSubscription: (id) => api.patch(`/subscriptions/${id}/hide`),
   getSubscription: (id) => api.get(`/subscriptions/${id}`),
   getPlans: () => api.get('/subscriptions/plans/available'),
   // Admin routes

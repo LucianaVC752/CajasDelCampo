@@ -74,8 +74,8 @@ const validateAddress = [
     .withMessage('Department must be between 2 and 100 characters'),
   body('postal_code')
     .optional()
-    .isPostalCode('CO')
-    .withMessage('Valid Colombian postal code is required'),
+    .isLength({ min: 4, max: 10 })
+    .withMessage('Postal code must be between 4 and 10 characters'),
   body('contact_name')
     .optional()
     .trim()
@@ -83,8 +83,8 @@ const validateAddress = [
     .withMessage('Contact name must be between 2 and 100 characters'),
   body('contact_phone')
     .optional()
-    .isMobilePhone()
-    .withMessage('Valid contact phone number is required'),
+    .isLength({ min: 7, max: 20 })
+    .withMessage('Contact phone must be between 7 and 20 characters'),
   handleValidationErrors
 ];
 
@@ -123,8 +123,8 @@ const validateSubscription = [
     .isLength({ min: 2, max: 100 })
     .withMessage('Plan name must be between 2 and 100 characters'),
   body('frequency')
-    .isIn(['weekly', 'biweekly', 'monthly'])
-    .withMessage('Frequency must be weekly, biweekly, or monthly'),
+    .isIn(['weekly', 'biweekly', 'monthly', 'quarterly'])
+    .withMessage('Frequency must be weekly, biweekly, monthly, or quarterly'),
   body('price')
     .isDecimal({ decimal_digits: '0,2' })
     .withMessage('Price must be a valid decimal number')
@@ -164,16 +164,17 @@ const validateOrder = [
 // Payment validation rules
 const validatePayment = [
   body('amount')
+    .optional()
     .isDecimal({ decimal_digits: '0,2' })
     .withMessage('Amount must be a valid decimal number')
     .custom((value) => {
-      if (parseFloat(value) <= 0) {
+      if (value && parseFloat(value) <= 0) {
         throw new Error('Amount must be positive');
       }
       return true;
     }),
   body('payment_method')
-    .isIn(['credit_card', 'debit_card', 'pse', 'google_pay', 'cash', 'bank_transfer'])
+    .isIn(['credit_card', 'debit_card', 'pse', 'google_pay', 'bank_transfer', 'cash_on_delivery'])
     .withMessage('Invalid payment method'),
   handleValidationErrors
 ];

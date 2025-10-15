@@ -1,9 +1,51 @@
 const express = require('express');
-const { Payment, Order, User } = require('../models');
+const { Payment, Order, User, Subscription } = require('../models');
 const { authenticateToken, requireAdmin, requireOwnershipOrAdmin } = require('../middleware/auth');
 const { validatePayment, validateId, validatePagination } = require('../middleware/validation');
 
 const router = express.Router();
+
+// Delete pending payments for a subscription
+router.delete('/delete-pending-payments/:subscription_id', authenticateToken, async (req, res) => {
+  try {
+    const { subscription_id } = req.params;
+    
+    // Verificar que la suscripción pertenece al usuario
+    const subscription = await Subscription.findOne({
+      where: {
+        subscription_id,
+        user_id: req.user.user_id
+      }
+    });
+    
+    if (!subscription) {
+      return res.status(404).json({ message: 'Suscripción no encontrada' });
+    }
+    
+    // Encontrar órdenes asociadas a la suscripción
+    const orders = await Order.findAll({
+      where: { subscription_id }
+    });
+    
+    const orderIds = orders.map(order => order.order_id);
+    
+    // Eliminar pagos pendientes asociados a estas órdenes
+    const deletedCount = await Payment.destroy({
+      where: {
+        order_id: orderIds,
+        status: 'pending'
+      }
+    });
+    
+    res.json({
+      message: `${deletedCount} pagos pendientes eliminados correctamente`,
+      deleted_count: deletedCount
+    });
+  } catch (error) {
+    console.error('Delete pending payments error:', error);
+    res.status(500).json({ message: 'Error al eliminar pagos pendientes' });
+  }
+});
 
 // Get user's payments
 router.get('/my-payments', authenticateToken, validatePagination, async (req, res) => {
@@ -71,9 +113,31 @@ router.post('/', authenticateToken, validatePayment, async (req, res) => {
     if (existingPayment) {
       return res.status(400).json({ message: 'Order already has a payment' });
     }
+    
+    // If this is a subscription order, check if there are any other payments for this subscription
+    if (order.subscription_id) {
+      const subscriptionOrders = await Order.findAll({
+        where: { subscription_id: order.subscription_id }
+      });
+      
+      const orderIds = subscriptionOrders.map(o => o.order_id);
+      
+      const existingSubscriptionPayment = await Payment.findOne({
+        where: { 
+          order_id: orderIds,
+          status: ['pending', 'completed']
+        }
+      });
+      
+      if (existingSubscriptionPayment) {
+        return res.status(400).json({ 
+          message: 'This subscription box already has a payment initiated or completed' 
+        });
+      }
+    }
 
-    // Verify amount matches order total
-    if (parseFloat(amount) !== parseFloat(order.total_amount)) {
+    // Verify amount matches order total if amount is provided
+    if (amount && parseFloat(amount) !== parseFloat(order.total_amount)) {
       return res.status(400).json({ 
         message: 'Payment amount does not match order total',
         order_total: order.total_amount,

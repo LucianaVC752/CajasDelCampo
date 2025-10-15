@@ -26,6 +26,8 @@ import {
   PlayArrow,
   Cancel,
   Store,
+  Payment,
+  DeleteForever,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
@@ -120,6 +122,16 @@ const Subscriptions = () => {
     }
   };
 
+  const handlePaySubscription = async (subscriptionId) => {
+    try {
+      // Redirigir a la vista de pagos con la suscripción
+      window.location.href = `/payments?subscription_id=${subscriptionId}`;
+    } catch (error) {
+      console.error('Error redirecting to payments:', error);
+      toast.error('Error al redirigir a la vista de pagos');
+    }
+  };
+
   const handlePause = async (subscriptionId) => {
     try {
       await api.patch(`/subscriptions/${subscriptionId}/pause`);
@@ -153,6 +165,29 @@ const Subscriptions = () => {
       } catch (error) {
         console.error('Error cancelling subscription:', error);
         toast.error(error.response?.data?.message || 'Error al cancelar la suscripción');
+      }
+    }
+  };
+
+  const handleRemoveCard = async (subscriptionId) => {
+    try {
+      await api.patch(`/subscriptions/${subscriptionId}/hide`);
+      toast.success('Tarjeta oculta permanentemente');
+      fetchSubscriptions();
+    } catch (error) {
+      console.error('Error hiding subscription card:', error);
+      toast.error(error.response?.data?.message || 'Error al ocultar la tarjeta');
+    }
+  };
+  const handleDeletePendingPayments = async (subscriptionId) => {
+    if (window.confirm('¿Estás seguro de que quieres eliminar todos los pagos pendientes de esta suscripción?')) {
+      try {
+        const response = await api.delete(`/payments/delete-pending-payments/${subscriptionId}`);
+        toast.success(`${response.data.deleted_count} pagos pendientes eliminados correctamente`);
+        fetchSubscriptions();
+      } catch (error) {
+        console.error('Error deleting pending payments:', error);
+        toast.error(error.response?.data?.message || 'Error al eliminar pagos pendientes');
       }
     }
   };
@@ -274,7 +309,8 @@ const Subscriptions = () => {
                       
                       <Typography variant="body2" color="text.secondary" paragraph>
                         Frecuencia: {subscription.frequency === 'weekly' ? 'Semanal' : 
-                                   subscription.frequency === 'biweekly' ? 'Quincenal' : 'Mensual'}
+                                   subscription.frequency === 'biweekly' ? 'Quincenal' : 
+                                   subscription.frequency === 'monthly' ? 'Mensual' : 'Cada 3 meses'}
                       </Typography>
                       
                       <Typography variant="body2" color="text.secondary" paragraph>
@@ -286,9 +322,18 @@ const Subscriptions = () => {
                         Próxima entrega: {new Date(subscription.next_delivery_date).toLocaleDateString('es-CO')}
                       </Typography>
                       
-                      <Box sx={{ display: 'flex', gap: 1, mt: 2 }}>
+                      <Box sx={{ display: 'flex', gap: 1, mt: 2, flexWrap: 'wrap' }}>
                         {subscription.status === 'active' && (
                           <>
+                            <Button
+                              variant="contained"
+                              size="small"
+                              startIcon={<Payment />}
+                              onClick={() => handlePaySubscription(subscription.subscription_id)}
+                              color="success"
+                            >
+                              Pagar
+                            </Button>
                             <Button
                               variant="outlined"
                               size="small"
@@ -306,16 +351,47 @@ const Subscriptions = () => {
                             >
                               Cancelar
                             </Button>
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              startIcon={<DeleteForever />}
+                              onClick={() => handleDeletePendingPayments(subscription.subscription_id)}
+                              color="error"
+                            >
+                              Eliminar pagos pendientes
+                            </Button>
                           </>
                         )}
                         {subscription.status === 'paused' && (
+                          <>
+                            <Button
+                              variant="contained"
+                              size="small"
+                              startIcon={<Payment />}
+                              onClick={() => handlePaySubscription(subscription.subscription_id)}
+                              color="success"
+                            >
+                              Pagar
+                            </Button>
+                            <Button
+                              variant="contained"
+                              size="small"
+                              startIcon={<PlayArrow />}
+                              onClick={() => handleResume(subscription.subscription_id)}
+                            >
+                              Reanudar
+                            </Button>
+                          </>
+                        )}
+                        {subscription.status === 'cancelled' && (
                           <Button
-                            variant="contained"
+                            variant="outlined"
                             size="small"
-                            startIcon={<PlayArrow />}
-                            onClick={() => handleResume(subscription.subscription_id)}
+                            startIcon={<DeleteForever />}
+                            onClick={() => handleRemoveCard(subscription.subscription_id)}
+                            color="error"
                           >
-                            Reanudar
+                            Eliminar tarjeta
                           </Button>
                         )}
                       </Box>
@@ -369,16 +445,17 @@ const Subscriptions = () => {
                 <Grid item xs={12} sm={6}>
                   <FormControl fullWidth>
                     <InputLabel>Frecuencia</InputLabel>
-                    <Select
-                      name="frequency"
-                      value={formData.frequency}
-                      onChange={handleChange}
-                      label="Frecuencia"
-                    >
-                      <MenuItem value="weekly">Semanal</MenuItem>
-                      <MenuItem value="biweekly">Quincenal</MenuItem>
-                      <MenuItem value="monthly">Mensual</MenuItem>
-                    </Select>
+                      <Select
+                        name="frequency"
+                        value={formData.frequency}
+                        onChange={handleChange}
+                        label="Frecuencia"
+                      >
+                        <MenuItem value="weekly">Semanal</MenuItem>
+                        <MenuItem value="biweekly">Quincenal</MenuItem>
+                        <MenuItem value="monthly">Mensual</MenuItem>
+                        <MenuItem value="quarterly">Cada 3 meses</MenuItem>
+                      </Select>
                   </FormControl>
                 </Grid>
                 <Grid item xs={12} sm={6}>
