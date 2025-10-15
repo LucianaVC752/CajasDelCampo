@@ -51,6 +51,7 @@ const AdminProducts = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [openDialog, setOpenDialog] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -112,6 +113,7 @@ const AdminProducts = () => {
         nutritional_info: product.nutritional_info || '',
         image_url: product.image_url || '',
       });
+      setImageFile(null);
     } else {
       setEditingProduct(null);
       setFormData({
@@ -127,6 +129,7 @@ const AdminProducts = () => {
         nutritional_info: '',
         image_url: '',
       });
+      setImageFile(null);
     }
     setOpenDialog(true);
   };
@@ -134,6 +137,7 @@ const AdminProducts = () => {
   const handleCloseDialog = () => {
     setOpenDialog(false);
     setEditingProduct(null);
+    setImageFile(null);
     setFormData({
       name: '',
       description: '',
@@ -157,15 +161,64 @@ const AdminProducts = () => {
     });
   };
 
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0] || null;
+    setImageFile(file);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      if (editingProduct) {
-        await api.put(`/products/${editingProduct.product_id}`, formData);
-        toast.success('Producto actualizado exitosamente');
+      // Validaciones de imagen: exclusividad y obligatoriedad en creación
+      if (formData.image_url && imageFile) {
+        toast.error('No puedes enviar una URL y un archivo simultáneamente');
+        return;
+      }
+
+      if (!editingProduct && !formData.image_url && !imageFile) {
+        toast.error('Debes proporcionar una URL de imagen o subir un archivo');
+        return;
+      }
+
+      if (imageFile && imageFile.size > 2 * 1024 * 1024) {
+        toast.error('El archivo de imagen excede 2MB');
+        return;
+      }
+
+      // Enviar multipart/form-data si hay archivo, JSON en caso contrario
+      if (imageFile) {
+        const multipart = new FormData();
+        multipart.append('image', imageFile);
+
+        const { image_url, ...rest } = formData;
+        Object.entries(rest).forEach(([key, value]) => {
+          // Asegurar que no se envíe undefined
+          multipart.append(key, value !== undefined && value !== null ? value : '');
+        });
+
+        if (editingProduct) {
+          await api.put(`/products/${editingProduct.product_id}`, multipart, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          toast.success('Producto actualizado exitosamente');
+        } else {
+          await api.post('/products', multipart, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          toast.success('Producto creado exitosamente');
+        }
       } else {
-        await api.post('/products', formData);
-        toast.success('Producto creado exitosamente');
+        if (editingProduct) {
+          await api.put(`/products/${editingProduct.product_id}`, formData);
+          toast.success('Producto actualizado exitosamente');
+        } else {
+          await api.post('/products', formData);
+          toast.success('Producto creado exitosamente');
+        }
+      }
+
+      if (editingProduct) {
+        // noop - ya manejado arriba
       }
       handleCloseDialog();
       fetchProducts();
@@ -459,14 +512,38 @@ const AdminProducts = () => {
                     onChange={handleFormChange}
                   />
                 </Grid>
-                <Grid item xs={12}>
+                <Grid item xs={12} sm={6}>
                   <TextField
                     fullWidth
                     label="URL de Imagen"
                     name="image_url"
                     value={formData.image_url}
                     onChange={handleFormChange}
+                    placeholder="https://..."
                   />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Button
+                    variant="outlined"
+                    component="label"
+                    fullWidth
+                  >
+                    Subir imagen desde el ordenador
+                    <input
+                      hidden
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={handleFileChange}
+                    />
+                  </Button>
+                  {imageFile && (
+                    <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>
+                      Archivo: {imageFile.name} ({Math.round(imageFile.size / 1024)} KB)
+                    </Typography>
+                  )}
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                    Elige una opción: URL o archivo (máx. 2MB). No ambos.
+                  </Typography>
                 </Grid>
                 <Grid item xs={12}>
                   <TextField

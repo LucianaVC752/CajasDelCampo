@@ -107,7 +107,7 @@ const validateProduct = [
     .isIn(['kg', 'g', 'lb', 'unidad', 'docena', 'manojo', 'atado'])
     .withMessage('Invalid unit'),
   body('category')
-    .optional()
+    .optional({ checkFalsy: true })
     .isIn(['vegetales', 'frutas', 'hierbas', 'tubérculos', 'legumbres', 'otros'])
     .withMessage('Invalid category'),
   body('farmer_id')
