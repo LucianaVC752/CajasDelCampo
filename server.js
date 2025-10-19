@@ -104,6 +104,18 @@ const startServer = async () => {
       console.warn('Skipping image_data migration check:', migrationError.message);
     }
 
+    // Ensure farmers table has image_data column for storing images in SQLite
+    try {
+      const [farmerColumns] = await sequelize.query("PRAGMA table_info('farmers');");
+      const hasFarmerImageData = Array.isArray(farmerColumns) && farmerColumns.some((c) => c.name === 'image_data');
+      if (!hasFarmerImageData) {
+        await sequelize.query("ALTER TABLE farmers ADD COLUMN image_data BLOB;");
+        console.log('Added image_data column to farmers table.');
+      }
+    } catch (migrationError) {
+      console.warn('Skipping farmers image_data migration check:', migrationError.message);
+    }
+
     // Sync database (create tables if they don't exist)
     await sequelize.sync({ force: false });
     console.log('Database synchronized successfully.');

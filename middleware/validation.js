@@ -116,6 +116,46 @@ const validateProduct = [
   handleValidationErrors
 ];
 
+// Product partial validation rules (for PATCH)
+const validateProductPartial = [
+  body('name')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Product name must be between 2 and 100 characters'),
+  body('price')
+    .optional({ checkFalsy: true })
+    .isDecimal({ decimal_digits: '0,2' })
+    .withMessage('Price must be a valid decimal number')
+    .custom((value) => {
+      if (value !== undefined && value !== '' && parseFloat(value) < 0) {
+        throw new Error('Price must be positive');
+      }
+      return true;
+    }),
+  body('unit')
+    .optional({ checkFalsy: true })
+    .isIn(['kg', 'g', 'lb', 'unidad', 'docena', 'manojo', 'atado'])
+    .withMessage('Invalid unit'),
+  body('category')
+    .optional({ checkFalsy: true })
+    .isIn(['vegetales', 'frutas', 'hierbas', 'tubérculos', 'legumbres', 'otros'])
+    .withMessage('Invalid category'),
+  body('farmer_id')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Valid farmer ID is required'),
+  body('stock_quantity')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 0 })
+    .withMessage('Stock quantity must be a non-negative integer'),
+  body('is_available')
+    .optional()
+    .isBoolean()
+    .withMessage('is_available must be a boolean'),
+  handleValidationErrors
+];
+
 // Subscription validation rules
 const validateSubscription = [
   body('plan_name')
@@ -205,6 +245,38 @@ const validateFarmer = [
   handleValidationErrors
 ];
 
+// Farmer partial validation rules (for PATCH)
+const validateFarmerPartial = [
+  body('name')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Farmer name must be between 2 and 100 characters'),
+  body('location')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 2, max: 255 })
+    .withMessage('Location must be between 2 and 255 characters'),
+  body('email')
+    .optional({ checkFalsy: true })
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Valid email is required'),
+  body('phone')
+    .optional({ checkFalsy: true })
+    .isMobilePhone()
+    .withMessage('Valid phone number is required'),
+  body('years_experience')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 0 })
+    .withMessage('Years of experience must be a positive integer'),
+  body('is_active')
+    .optional()
+    .isBoolean()
+    .withMessage('is_active must be a boolean'),
+  handleValidationErrors
+];
+
 // ID parameter validation
 const validateId = (paramName = 'id') => [
   param(paramName)
@@ -233,10 +305,12 @@ module.exports = {
   validateUserUpdate,
   validateAddress,
   validateProduct,
+  validateProductPartial,
   validateSubscription,
   validateOrder,
   validatePayment,
   validateFarmer,
+  validateFarmerPartial,
   validateId,
   validatePagination
 };

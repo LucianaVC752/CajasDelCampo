@@ -45,6 +45,10 @@ const Farmer = sequelize.define('Farmer', {
     type: DataTypes.STRING(500),
     allowNull: true
   },
+  image_data: {
+    type: DataTypes.BLOB('long'),
+    allowNull: true
+  },
   is_active: {
     type: DataTypes.BOOLEAN,
     allowNull: false,

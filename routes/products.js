@@ -1,10 +1,11 @@
 const express = require('express');
 const { Product, Farmer } = require('../models');
 const { authenticateToken, requireAdmin, optionalAuth } = require('../middleware/auth');
-const { validateProduct, validateId, validatePagination } = require('../middleware/validation');
+const { validateProduct, validateProductPartial, validateId, validatePagination } = require('../middleware/validation');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const { buildImageFromFile, buildImageFromBase64, detectImageMimeType } = require('../utils/image');
 
 // Configure multer storage for image uploads
 const uploadDir = path.join(process.cwd(), 'uploads');
@@ -36,34 +37,7 @@ const upload = multer({ storage, fileFilter, limits: { fileSize: 2 * 1024 * 1024
 
 const router = express.Router();
 
-// Detect MIME type from image buffer (PNG, JPEG, GIF, WEBP)
-function detectImageMimeType(buffer) {
-  if (!buffer || buffer.length < 12) return null;
-  // PNG
-  if (
-    buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47 &&
-    buffer[4] === 0x0d && buffer[5] === 0x0a && buffer[6] === 0x1a && buffer[7] === 0x0a
-  ) {
-    return 'image/png';
-  }
-  // JPEG
-  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-    return 'image/jpeg';
-  }
-  // GIF
-  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) {
-    return 'image/gif';
-  }
-  // WEBP (RIFF....WEBP)
-  if (
-    buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
-    buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50
-  ) {
-    return 'image/webp';
-  }
-  return null;
-}
-
+// Using detectImageMimeType from utils/image.js
 // Get all products (public)
 router.get('/', optionalAuth, validatePagination, async (req, res) => {
   try {
@@ -188,26 +162,17 @@ router.post('/', authenticateToken, requireAdmin, upload.single('image'), valida
   try {
     const payload = { ...req.body };
 
-    // Handle image via multipart file
+    // Handle image via multipart file or base64 using helper
     if (req.file) {
-      const relativePath = path.join('/uploads', req.file.filename).replace(/\\/g, '/');
-      payload.image_url = relativePath;
+      const { image_url } = buildImageFromFile(req.file);
+      payload.image_url = image_url;
       payload.image_data = null;
     } else if (payload.image_base64) {
-      // Handle image via base64
-      const base64String = String(payload.image_base64);
-      const commaIndex = base64String.indexOf(',');
-      const rawBase64 = commaIndex !== -1 ? base64String.slice(commaIndex + 1) : base64String;
-      try {
-        const buffer = Buffer.from(rawBase64, 'base64');
-        // Basic sanity check size
-        if (buffer.length > 2 * 1024 * 1024) {
-          return res.status(400).json({ message: 'Base64 image too large (max 2MB)' });
-        }
-        payload.image_data = buffer;
-      } catch (e) {
-        return res.status(400).json({ message: 'Invalid Base64 image data' });
+      const result = buildImageFromBase64(String(payload.image_base64));
+      if (result.error) {
+        return res.status(400).json({ message: result.error });
       }
+      payload.image_data = result.image_data;
     }
 
     // Clean helper field if present
@@ -248,22 +213,15 @@ router.put('/:id', authenticateToken, requireAdmin, validateId('id'), upload.sin
     const payload = { ...req.body };
 
     if (req.file) {
-      const relativePath = path.join('/uploads', req.file.filename).replace(/\\/g, '/');
-      payload.image_url = relativePath;
+      const { image_url } = buildImageFromFile(req.file);
+      payload.image_url = image_url;
       payload.image_data = null;
     } else if (payload.image_base64) {
-      const base64String = String(payload.image_base64);
-      const commaIndex = base64String.indexOf(',');
-      const rawBase64 = commaIndex !== -1 ? base64String.slice(commaIndex + 1) : base64String;
-      try {
-        const buffer = Buffer.from(rawBase64, 'base64');
-        if (buffer.length > 2 * 1024 * 1024) {
-          return res.status(400).json({ message: 'Base64 image too large (max 2MB)' });
-        }
-        payload.image_data = buffer;
-      } catch (e) {
-        return res.status(400).json({ message: 'Invalid Base64 image data' });
+      const result = buildImageFromBase64(String(payload.image_base64));
+      if (result.error) {
+        return res.status(400).json({ message: result.error });
       }
+      payload.image_data = result.image_data;
     }
 
     delete payload.image_base64;
@@ -287,6 +245,56 @@ router.put('/:id', authenticateToken, requireAdmin, validateId('id'), upload.sin
     });
   } catch (error) {
     console.error('Update product error:', error);
+    res.status(500).json({ message: 'Failed to update product' });
+  }
+});
+
+// Admin routes - Partial update product (PATCH)
+router.patch('/:id', authenticateToken, requireAdmin, validateId('id'), upload.single('image'), validateProductPartial, async (req, res) => {
+  try {
+    const product = await Product.findByPk(req.params.id);
+
+    if (!product) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+
+    const payload = { ...req.body };
+
+    // Handle image via multipart file or base64 using helper
+    if (req.file) {
+      const { image_url } = buildImageFromFile(req.file);
+      payload.image_url = image_url;
+      payload.image_data = null;
+    } else if (payload.image_base64) {
+      const result = buildImageFromBase64(String(payload.image_base64));
+      if (result.error) {
+        return res.status(400).json({ message: result.error });
+      }
+      payload.image_data = result.image_data;
+    }
+
+    // Clean helper field if present
+    delete payload.image_base64;
+
+    await product.update(payload);
+
+    // Fetch the updated product with farmer information
+    const updatedProduct = await Product.findByPk(product.product_id, {
+      include: [
+        {
+          model: Farmer,
+          as: 'farmer',
+          attributes: ['farmer_id', 'name', 'location']
+        }
+      ]
+    });
+
+    res.json({
+      message: 'Product updated successfully',
+      product: updatedProduct
+    });
+  } catch (error) {
+    console.error('Patch product error:', error);
     res.status(500).json({ message: 'Failed to update product' });
   }
 });

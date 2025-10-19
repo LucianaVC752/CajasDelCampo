@@ -18,6 +18,12 @@ import {
   Button,
   CircularProgress,
   Avatar,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  Grid,
+  Alert,
 } from '@mui/material';
 import {
   Search,
@@ -26,13 +32,31 @@ import {
   Add,
   Restore,
   Store,
+  Save,
+  Cancel,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
+import api from '../../services/api';
+import toast from 'react-hot-toast';
 
 const AdminFarmers = () => {
   const [farmers, setFarmers] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
+
+  const [openDialog, setOpenDialog] = useState(false);
+  const [editingFarmer, setEditingFarmer] = useState(null);
+  const [imageFile, setImageFile] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    location: '',
+    email: '',
+    phone: '',
+    years_experience: '',
+    specialties: '', // coma separada: "frutas, tubérculos"
+    is_active: true,
+  });
 
   useEffect(() => {
     fetchFarmers();
@@ -40,62 +64,143 @@ const AdminFarmers = () => {
 
   const fetchFarmers = async () => {
     setLoading(true);
-    // Simulate API call
-    setTimeout(() => {
-      setFarmers([
-        {
-          farmer_id: 1,
-          name: 'María González',
-          location: 'Bogotá, Cundinamarca',
-          email: 'maria@example.com',
-          phone: '+57 300 123 4567',
-          is_active: true,
-          years_experience: 15,
-          specialties: ['vegetales', 'hierbas'],
-          products_count: 12,
-          image_url: '/placeholder-farmer.jpg',
-        },
-        {
-          farmer_id: 2,
-          name: 'Carlos Rodríguez',
-          location: 'Medellín, Antioquia',
-          email: 'carlos@example.com',
-          phone: '+57 300 234 5678',
-          is_active: true,
-          years_experience: 8,
-          specialties: ['frutas', 'tubérculos'],
-          products_count: 8,
-          image_url: '/placeholder-farmer.jpg',
-        },
-        {
-          farmer_id: 3,
-          name: 'Ana Martínez',
-          location: 'Cali, Valle del Cauca',
-          email: 'ana@example.com',
-          phone: '+57 300 345 6789',
-          is_active: false,
-          years_experience: 12,
-          specialties: ['legumbres'],
-          products_count: 5,
-          image_url: '/placeholder-farmer.jpg',
-        },
-      ]);
+    setError(null);
+    try {
+      // Admin: listar todos (activos e inactivos)
+      const response = await api.get('/farmers/admin/all');
+      setFarmers(response.data.farmers || []);
+    } catch (error) {
+      console.error('Error fetching farmers:', error);
+      setError('Error al cargar los campesinos');
+      toast.error('Error al cargar los campesinos');
+    } finally {
       setLoading(false);
-    }, 1000);
+    }
   };
 
-  const handleToggleStatus = (farmerId) => {
-    setFarmers(farmers.map(farmer => 
-      farmer.farmer_id === farmerId 
-        ? { ...farmer, is_active: !farmer.is_active }
-        : farmer
-    ));
+  const handleOpenDialog = (farmer = null) => {
+    if (farmer) {
+      setEditingFarmer(farmer);
+      setFormData({
+        name: farmer.name || '',
+        location: farmer.location || '',
+        email: farmer.email || '',
+        phone: farmer.phone || '',
+        years_experience: farmer.years_experience ?? '',
+        specialties: Array.isArray(farmer.specialties) ? farmer.specialties.join(', ') : (farmer.specialties || ''),
+        is_active: farmer.is_active !== false,
+      });
+      setImageFile(null);
+    } else {
+      setEditingFarmer(null);
+      setFormData({
+        name: '',
+        location: '',
+        email: '',
+        phone: '',
+        years_experience: '',
+        specialties: '',
+        is_active: true,
+      });
+      setImageFile(null);
+    }
+    setOpenDialog(true);
+  };
+
+  const handleCloseDialog = () => {
+    setOpenDialog(false);
+    setEditingFarmer(null);
+    setImageFile(null);
+    setFormData({
+      name: '',
+      location: '',
+      email: '',
+      phone: '',
+      years_experience: '',
+      specialties: '',
+      is_active: true,
+    });
+  };
+
+  const handleFormChange = (e) => {
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleFileChange = (e) => {
+    const file = e.target.files?.[0] || null;
+    setImageFile(file);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      // Reglas: sin URL, solo archivo. Obligatorio en creación.
+      if (!editingFarmer && !imageFile) {
+        toast.error('Debes subir un archivo de imagen al crear');
+        return;
+      }
+      if (imageFile && imageFile.size > 2 * 1024 * 1024) {
+        toast.error('El archivo de imagen excede 2MB');
+        return;
+      }
+
+      if (imageFile) {
+        const multipart = new FormData();
+        multipart.append('image', imageFile);
+        Object.entries(formData).forEach(([key, value]) => {
+          multipart.append(key, value !== undefined && value !== null ? value : '');
+        });
+
+        if (editingFarmer) {
+          await api.put(`/farmers/${editingFarmer.farmer_id}`, multipart, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          toast.success('Campesino actualizado exitosamente');
+        } else {
+          await api.post('/farmers', multipart, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          toast.success('Campesino creado exitosamente');
+        }
+      } else {
+        // Actualización sin cambiar imagen
+        if (editingFarmer) {
+          await api.patch(`/farmers/${editingFarmer.farmer_id}`, formData);
+          toast.success('Campesino actualizado exitosamente');
+        } else {
+          // No se permite creación sin imagen
+          toast.error('Debes subir un archivo de imagen al crear');
+          return;
+        }
+      }
+
+      handleCloseDialog();
+      fetchFarmers();
+    } catch (error) {
+      console.error('Error saving farmer:', error);
+      toast.error(error.response?.data?.message || 'Error al guardar el campesino');
+    }
+  };
+
+  const handleToggleStatus = async (farmerId) => {
+    try {
+      const current = farmers.find(f => f.farmer_id === farmerId);
+      await api.patch(`/farmers/${farmerId}`, {
+        is_active: !current?.is_active,
+      });
+      toast.success('Estado actualizado');
+      fetchFarmers();
+    } catch (error) {
+      console.error('Error updating status:', error);
+      toast.error('Error al actualizar el estado');
+    }
   };
 
   const filteredFarmers = farmers.filter(farmer =>
-    farmer.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    farmer.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    farmer.email.toLowerCase().includes(searchTerm.toLowerCase())
+    (farmer.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (farmer.location || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (farmer.email || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   if (loading) {
@@ -105,6 +210,19 @@ const AdminFarmers = () => {
         <Typography variant="body1" sx={{ mt: 2 }}>
           Cargando campesinos...
         </Typography>
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container maxWidth="lg" sx={{ py: 4 }}>
+        <Alert severity="error" sx={{ mb: 2 }}>
+          {error}
+        </Alert>
+        <Button variant="contained" onClick={fetchFarmers}>
+          Reintentar
+        </Button>
       </Container>
     );
   }
@@ -132,7 +250,11 @@ const AdminFarmers = () => {
                 }}
                 sx={{ minWidth: 300 }}
               />
-              <Button variant="contained" startIcon={<Add />}>
+              <Button 
+                variant="contained" 
+                startIcon={<Add />}
+                onClick={() => handleOpenDialog()}
+              >
                 Agregar Campesino
               </Button>
             </Box>
@@ -162,7 +284,7 @@ const AdminFarmers = () => {
                     >
                       <TableCell>
                         <Avatar
-                          src={farmer.image_url}
+                          src={`/api/farmers/${farmer.farmer_id}/image`}
                           alt={farmer.name}
                           sx={{ width: 40, height: 40 }}
                         />
@@ -192,7 +314,7 @@ const AdminFarmers = () => {
                       </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap' }}>
-                          {farmer.specialties.map((specialty, idx) => (
+                          {(farmer.specialties || []).map((specialty, idx) => (
                             <Chip
                               key={idx}
                               label={specialty}
@@ -207,7 +329,7 @@ const AdminFarmers = () => {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Store fontSize="small" color="action" />
                           <Typography variant="body2">
-                            {farmer.products_count}
+                            {farmer.products_count ?? farmer.products?.length ?? 0}
                           </Typography>
                         </Box>
                       </TableCell>
@@ -220,7 +342,10 @@ const AdminFarmers = () => {
                       </TableCell>
                       <TableCell>
                         <Box sx={{ display: 'flex', gap: 1 }}>
-                          <IconButton size="small">
+                          <IconButton 
+                            size="small"
+                            onClick={() => handleOpenDialog(farmer)}
+                          >
                             <Edit />
                           </IconButton>
                           <IconButton
@@ -239,6 +364,107 @@ const AdminFarmers = () => {
             </TableContainer>
           </CardContent>
         </Card>
+
+        {/* Farmer Dialog */}
+        <Dialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
+          <DialogTitle>
+            {editingFarmer ? 'Editar Campesino' : 'Nuevo Campesino'}
+          </DialogTitle>
+          <DialogContent>
+            <Box component="form" sx={{ pt: 1 }}>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Nombre"
+                    name="name"
+                    value={formData.name}
+                    onChange={handleFormChange}
+                    required
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Ubicación"
+                    name="location"
+                    value={formData.location}
+                    onChange={handleFormChange}
+                    required
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleFormChange}
+                    type="email"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Teléfono"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleFormChange}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Años de experiencia"
+                    name="years_experience"
+                    type="number"
+                    value={formData.years_experience}
+                    onChange={handleFormChange}
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    fullWidth
+                    label="Especialidades (separadas por coma)"
+                    name="specialties"
+                    value={formData.specialties}
+                    onChange={handleFormChange}
+                    placeholder="frutas, tubérculos, hierbas"
+                  />
+                </Grid>
+                <Grid item xs={12} sm={6}>
+                  <Button
+                    variant="outlined"
+                    component="label"
+                    fullWidth
+                  >
+                    Subir imagen desde el ordenador
+                    <input
+                      hidden
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      onChange={handleFileChange}
+                    />
+                  </Button>
+                  {imageFile && (
+                    <Typography variant="caption" sx={{ mt: 1, display: 'block' }}>
+                      Archivo: {imageFile.name} ({Math.round(imageFile.size / 1024)} KB)
+                    </Typography>
+                  )}
+                  <Typography variant="caption" color="text.secondary" sx={{ mt: 1, display: 'block' }}>
+                    Solo archivo de imagen (máx. 2MB). No se admite URL.
+                  </Typography>
+                </Grid>
+              </Grid>
+            </Box>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCloseDialog} startIcon={<Cancel />}>Cancelar</Button>
+            <Button onClick={handleSubmit} variant="contained" startIcon={<Save />}>
+              {editingFarmer ? 'Actualizar' : 'Crear'}
+            </Button>
+          </DialogActions>
+        </Dialog>
       </motion.div>
     </Container>
   );

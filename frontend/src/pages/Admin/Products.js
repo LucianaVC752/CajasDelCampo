@@ -197,7 +197,7 @@ const AdminProducts = () => {
         });
 
         if (editingProduct) {
-          await api.put(`/products/${editingProduct.product_id}`, multipart, {
+          await api.patch(`/products/${editingProduct.product_id}`, multipart, {
             headers: { 'Content-Type': 'multipart/form-data' },
           });
           toast.success('Producto actualizado exitosamente');
@@ -209,7 +209,7 @@ const AdminProducts = () => {
         }
       } else {
         if (editingProduct) {
-          await api.put(`/products/${editingProduct.product_id}`, formData);
+          await api.patch(`/products/${editingProduct.product_id}`, formData);
           toast.success('Producto actualizado exitosamente');
         } else {
           await api.post('/products', formData);
