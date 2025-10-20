@@ -1,7 +1,7 @@
 const express = require('express');
 const { User, Address, Subscription, Order } = require('../models');
-const { authenticateToken, requireOwnershipOrAdmin } = require('../middleware/auth');
-const { validateUserUpdate, validateAddress, validateId, validatePagination } = require('../middleware/validation');
+const { authenticateToken, requireOwnershipOrAdmin, requireAdmin } = require('../middleware/auth');
+const { validateUserUpdate, validateAddress, validateId, validatePagination, validateUserAdminCreate, validateUserAdminUpdate, validateUserAdminPartial } = require('../middleware/validation');
 
 const router = express.Router();
 
@@ -279,13 +279,29 @@ router.get('/orders/:id', authenticateToken, validateId('id'), async (req, res) 
 });
 
 // Admin routes - Get all users
-router.get('/', authenticateToken, requireOwnershipOrAdmin(), validatePagination, async (req, res) => {
+router.get('/', authenticateToken, requireAdmin, validatePagination, async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
+    const { search, role, is_active } = req.query;
+
+    const whereClause = {};
+    if (typeof is_active !== 'undefined') {
+      whereClause.is_active = String(is_active) === 'true';
+    }
+    if (role) {
+      whereClause.role = role;
+    }
+    if (search) {
+      whereClause[require('sequelize').Op.or] = [
+        { name: { [require('sequelize').Op.like]: `%${search}%` } },
+        { email: { [require('sequelize').Op.like]: `%${search}%` } }
+      ];
+    }
 
     const { count, rows: users } = await User.findAndCountAll({
+      where: whereClause,
       attributes: { exclude: ['password_hash'] },
       order: [['created_at', 'DESC']],
       limit,
@@ -357,6 +373,118 @@ router.patch('/:id/status', authenticateToken, requireOwnershipOrAdmin(), valida
   } catch (error) {
     console.error('Update user status error:', error);
     res.status(500).json({ message: 'Failed to update user status' });
+  }
+});
+
+// Admin routes - Create user
+router.post('/', authenticateToken, requireAdmin, validateUserAdminCreate, async (req, res) => {
+  try {
+    const payload = { ...req.body };
+    if (payload.password) {
+      payload.password_hash = payload.password;
+      delete payload.password;
+    }
+
+    const user = await User.create(payload);
+    const created = await User.findByPk(user.user_id, {
+      attributes: { exclude: ['password_hash'] }
+    });
+
+    res.status(201).json({
+      message: 'User created successfully',
+      user: created
+    });
+  } catch (error) {
+    console.error('Create user error:', error);
+    res.status(500).json({ message: 'Failed to create user' });
+  }
+});
+
+// Admin routes - Update user
+router.put('/:id', authenticateToken, requireAdmin, validateId('id'), validateUserAdminUpdate, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const payload = { ...req.body };
+    if (payload.password) {
+      payload.password_hash = payload.password;
+      delete payload.password;
+    }
+
+    await user.update(payload);
+
+    const updated = await User.findByPk(user.user_id, {
+      attributes: { exclude: ['password_hash'] }
+    });
+
+    res.json({ message: 'User updated successfully', user: updated });
+  } catch (error) {
+    console.error('Update user error:', error);
+    res.status(500).json({ message: 'Failed to update user' });
+  }
+});
+
+// Admin routes - Update user partial
+router.patch('/:id', authenticateToken, requireAdmin, validateId('id'), validateUserAdminPartial, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const payload = { ...req.body };
+    if (payload.password) {
+      payload.password_hash = payload.password;
+      delete payload.password;
+    }
+
+    await user.update(payload);
+
+    const updated = await User.findByPk(user.user_id, {
+      attributes: { exclude: ['password_hash'] }
+    });
+
+    res.json({ message: 'User updated successfully', user: updated });
+  } catch (error) {
+    console.error('Patch user error:', error);
+    res.status(500).json({ message: 'Failed to update user' });
+  }
+});
+
+// Admin routes - Deactivate user
+router.delete('/:id', authenticateToken, requireAdmin, validateId('id'), async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    await user.update({ is_active: false });
+
+    res.json({ message: 'User deactivated successfully' });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ message: 'Failed to deactivate user' });
+  }
+});
+
+// Admin routes - Restore user
+router.patch('/:id/restore', authenticateToken, requireAdmin, validateId('id'), async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    await user.update({ is_active: true });
+
+    res.json({ message: 'User restored successfully' });
+  } catch (error) {
+    console.error('Restore user error:', error);
+    res.status(500).json({ message: 'Failed to restore user' });
   }
 });
 

@@ -298,11 +298,107 @@ const validatePagination = [
   handleValidationErrors
 ];
 
+const validateUserAdminCreate = [
+  body('name')
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters'),
+  body('email')
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Valid email is required'),
+  body('password')
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain at least one lowercase letter, one uppercase letter, and one number'),
+  body('phone_number')
+    .optional()
+    .isMobilePhone()
+    .withMessage('Valid phone number is required'),
+  body('role')
+    .optional()
+    .isIn(['customer', 'admin'])
+    .withMessage('Invalid role'),
+  body('is_active')
+    .optional()
+    .isBoolean()
+    .withMessage('is_active must be a boolean'),
+  handleValidationErrors
+];
+
+const validateUserAdminUpdate = [
+  body('name')
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters'),
+  body('email')
+    .optional({ checkFalsy: true })
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Valid email is required'),
+  body('phone_number')
+    .optional({ checkFalsy: true })
+    .isMobilePhone()
+    .withMessage('Valid phone number is required'),
+  body('role')
+    .optional({ checkFalsy: true })
+    .isIn(['customer', 'admin'])
+    .withMessage('Invalid role'),
+  body('is_active')
+    .optional()
+    .isBoolean()
+    .withMessage('is_active must be a boolean'),
+  body('password')
+    .optional({ checkFalsy: true })
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain at least one lowercase letter, one uppercase letter, and one number'),
+  handleValidationErrors
+];
+
+const validateUserAdminPartial = [
+  body('name')
+    .optional({ checkFalsy: true })
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage('Name must be between 2 and 100 characters'),
+  body('email')
+    .optional({ checkFalsy: true })
+    .isEmail()
+    .normalizeEmail()
+    .withMessage('Valid email is required'),
+  body('phone_number')
+    .optional({ checkFalsy: true })
+    .isMobilePhone()
+    .withMessage('Valid phone number is required'),
+  body('role')
+    .optional({ checkFalsy: true })
+    .isIn(['customer', 'admin'])
+    .withMessage('Invalid role'),
+  body('is_active')
+    .optional()
+    .isBoolean()
+    .withMessage('is_active must be a boolean'),
+  body('password')
+    .optional({ checkFalsy: true })
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
+    .withMessage('Password must contain at least one lowercase letter, one uppercase letter, and one number'),
+  handleValidationErrors
+];
+
 module.exports = {
   handleValidationErrors,
   validateUserRegistration,
   validateUserLogin,
   validateUserUpdate,
+  validateUserAdminCreate,
+  validateUserAdminUpdate,
+  validateUserAdminPartial,
   validateAddress,
   validateProduct,
   validateProductPartial,
