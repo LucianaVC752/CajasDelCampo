@@ -323,7 +323,6 @@ router.get('/', authenticateToken, requireAdmin, validatePagination, async (req,
     res.status(500).json({ message: 'Failed to retrieve users' });
   }
 });
-
 // Admin routes - Get specific user
 router.get('/:id', authenticateToken, requireOwnershipOrAdmin(), validateId('id'), async (req, res) => {
   try {
@@ -485,6 +484,30 @@ router.patch('/:id/restore', authenticateToken, requireAdmin, validateId('id'), 
   } catch (error) {
     console.error('Restore user error:', error);
     res.status(500).json({ message: 'Failed to restore user' });
+  }
+});
+
+
+// Admin routes - Create address for user
+router.post('/:id/addresses', authenticateToken, requireAdmin, validateId('id'), validateAddress, async (req, res) => {
+  try {
+    const user = await User.findByPk(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const addressData = { ...req.body, user_id: req.params.id };
+
+    if (addressData.is_default) {
+      await Address.update({ is_default: false }, { where: { user_id: req.params.id } });
+    }
+
+    const address = await Address.create(addressData);
+
+    res.status(201).json({ message: 'Address created successfully', address });
+  } catch (error) {
+    console.error('Admin create address error:', error);
+    res.status(500).json({ message: 'Failed to create address' });
   }
 });
 

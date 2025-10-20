@@ -391,6 +391,128 @@ const validateUserAdminPartial = [
   handleValidationErrors
 ];
 
+// Admin Order validation rules (create)
+const validateOrderAdminCreate = [
+  body('user_id')
+    .isInt({ min: 1 })
+    .withMessage('Valid user ID is required'),
+  body('address_id')
+    .isInt({ min: 1 })
+    .withMessage('Valid address ID is required'),
+  body('delivery_date')
+    .isISO8601()
+    .withMessage('Valid delivery date is required')
+    .custom((value) => {
+      const deliveryDate = new Date(value);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      
+      if (deliveryDate < today) {
+        throw new Error('Delivery date cannot be in the past');
+      }
+      return true;
+    }),
+  body('subscription_id')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Valid subscription ID is required'),
+  body('items')
+    .optional({ checkFalsy: true })
+    .isArray({ min: 1 })
+    .withMessage('Items must be a non-empty array when provided'),
+  body('items.*.product_id')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Each item must have a valid product_id'),
+  body('items.*.quantity')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Each item must have a quantity >= 1'),
+  body('shipping_cost')
+    .optional()
+    .isDecimal({ decimal_digits: '0,2' })
+    .withMessage('shipping_cost must be a valid decimal'),
+  handleValidationErrors
+];
+
+// Admin Order validation rules (update full)
+const validateOrderAdminUpdate = [
+  body('address_id')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Valid address ID is required'),
+  body('delivery_date')
+    .optional({ checkFalsy: true })
+    .isISO8601()
+    .withMessage('Valid delivery date is required')
+    .custom((value) => {
+      if (!value) return true;
+      const deliveryDate = new Date(value);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (deliveryDate < today) {
+        throw new Error('Delivery date cannot be in the past');
+      }
+      return true;
+    }),
+  body('items')
+    .optional({ checkFalsy: true })
+    .isArray({ min: 1 })
+    .withMessage('Items must be a non-empty array when provided'),
+  body('items.*.product_id')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Each item must have a valid product_id'),
+  body('items.*.quantity')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Each item must have a quantity >= 1'),
+  body('shipping_cost')
+    .optional()
+    .isDecimal({ decimal_digits: '0,2' })
+    .withMessage('shipping_cost must be a valid decimal'),
+  handleValidationErrors
+];
+
+// Admin Order validation rules (partial)
+const validateOrderAdminPartial = [
+  body('address_id')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Valid address ID is required'),
+  body('delivery_date')
+    .optional({ checkFalsy: true })
+    .isISO8601()
+    .withMessage('Valid delivery date is required')
+    .custom((value) => {
+      if (!value) return true;
+      const deliveryDate = new Date(value);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (deliveryDate < today) {
+        throw new Error('Delivery date cannot be in the past');
+      }
+      return true;
+    }),
+  body('items')
+    .optional({ checkFalsy: true })
+    .isArray({ min: 1 })
+    .withMessage('Items must be a non-empty array when provided'),
+  body('items.*.product_id')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Each item must have a valid product_id'),
+  body('items.*.quantity')
+    .optional({ checkFalsy: true })
+    .isInt({ min: 1 })
+    .withMessage('Each item must have a quantity >= 1'),
+  body('shipping_cost')
+    .optional()
+    .isDecimal({ decimal_digits: '0,2' })
+    .withMessage('shipping_cost must be a valid decimal'),
+  handleValidationErrors
+];
+
 module.exports = {
   handleValidationErrors,
   validateUserRegistration,
@@ -404,6 +526,9 @@ module.exports = {
   validateProductPartial,
   validateSubscription,
   validateOrder,
+  validateOrderAdminCreate,
+  validateOrderAdminUpdate,
+  validateOrderAdminPartial,
   validatePayment,
   validateFarmer,
   validateFarmerPartial,

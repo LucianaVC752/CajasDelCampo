@@ -74,6 +74,12 @@ export const usersAPI = {
   getSubscriptions: () => api.get('/users/subscriptions'),
   getOrders: (params) => api.get('/users/orders', { params }),
   getOrder: (id) => api.get(`/users/orders/${id}`),
+  // Admin: get specific user with relations
+  getUserAdmin: (id) => api.get(`/users/${id}`),
+  // Admin: update user (partial)
+  updateUserAdmin: (id, data) => api.patch(`/users/${id}`, data),
+  // Admin: create address for a specific user
+  createAddressAdmin: (userId, data) => api.post(`/users/${userId}/addresses`, data),
 };
 
 // Products API
@@ -117,6 +123,8 @@ export const subscriptionsAPI = {
   getSubscriptionAdmin: (id) => api.get(`/subscriptions/admin/${id}`),
   updateSubscriptionAdmin: (id, data) => api.put(`/subscriptions/admin/${id}`, data),
   cancelSubscriptionAdmin: (id, data) => api.patch(`/subscriptions/admin/${id}/cancel`, data),
+  // Admin: create subscription for a user
+  createSubscriptionAdmin: (data) => api.post('/subscriptions/admin', data),
 };
 
 // Orders API
@@ -129,6 +137,12 @@ export const ordersAPI = {
   getAllOrders: (params) => api.get('/orders', { params }),
   getOrderAdmin: (id) => api.get(`/orders/admin/${id}`),
   updateOrderStatus: (id, data) => api.patch(`/orders/admin/${id}/status`, data),
+  // New admin CRUD
+  createOrderAdmin: (data) => api.post('/orders/admin', data),
+  updateOrderAdmin: (id, data) => api.put(`/orders/admin/${id}`, data),
+  patchOrderAdmin: (id, data) => api.patch(`/orders/admin/${id}`, data),
+  cancelOrderAdmin: (id, data) => api.delete(`/orders/admin/${id}`, { data }),
+  restoreOrderAdmin: (id) => api.patch(`/orders/admin/${id}/restore`),
 };
 
 // Payments API

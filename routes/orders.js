@@ -1,7 +1,7 @@
 const express = require('express');
 const { Order, OrderItem, Product, Farmer, User, Address, Subscription } = require('../models');
 const { authenticateToken, requireAdmin, requireOwnershipOrAdmin } = require('../middleware/auth');
-const { validateOrder, validateId, validatePagination } = require('../middleware/validation');
+const { validateOrder, validateId, validatePagination, validateOrderAdminCreate, validateOrderAdminUpdate, validateOrderAdminPartial } = require('../middleware/validation');
 
 const router = express.Router();
 
@@ -449,3 +449,369 @@ async function getProductsForBox(boxSize, preferences = {}) {
 }
 
 module.exports = router;
+
+// Admin routes - Create order
+router.post('/admin', authenticateToken, requireAdmin, validateOrderAdminCreate, async (req, res) => {
+  try {
+    const { user_id, address_id, delivery_date, items, special_instructions, shipping_cost = 0, subscription_id } = req.body;
+
+    // Validate user
+    const user = await User.findByPk(user_id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Validate address belongs to user
+    const address = await Address.findOne({ where: { address_id, user_id } });
+    if (!address) {
+      return res.status(404).json({ message: 'Address not found for user' });
+    }
+
+    let subtotal = 0;
+    let orderItemsPayload = [];
+    let taxAmount = 0;
+    const shippingCost = parseFloat(shipping_cost) || 0;
+    let totalAmount = 0;
+
+    if (subscription_id) {
+      // Build order from subscription configuration
+      const subscription = await Subscription.findByPk(subscription_id);
+      if (!subscription || subscription.user_id !== user_id || subscription.status !== 'active') {
+        return res.status(404).json({ message: 'Active subscription not found for user' });
+      }
+
+      const productsForBox = await getProductsForBox(subscription.box_size, subscription.custom_preferences);
+      if (!productsForBox || productsForBox.length === 0) {
+        return res.status(400).json({ message: 'No products available for this box size' });
+      }
+
+      subtotal = productsForBox.reduce((sum, product) => sum + (parseFloat(product.price) * (product.quantity || 1)), 0);
+      taxAmount = subtotal * 0.19; // IVA 19%
+      // Use the subscription price directly instead of calculating from products
+      totalAmount = parseFloat(subscription.price);
+
+      orderItemsPayload = productsForBox.map(product => ({
+        product_id: product.product_id,
+        quantity: product.quantity || 1,
+        price_at_purchase: parseFloat(product.price),
+        product_name: product.name,
+        product_unit: product.unit,
+        farmer_name: product.farmer?.name || 'N/A'
+      }));
+
+      // Update subscription next delivery date based on frequency
+      if (subscription.next_delivery_date) {
+        const nextDelivery = new Date(subscription.next_delivery_date);
+        switch (subscription.frequency) {
+          case 'weekly':
+            nextDelivery.setDate(nextDelivery.getDate() + 7);
+            break;
+          case 'biweekly':
+            nextDelivery.setDate(nextDelivery.getDate() + 14);
+            break;
+          case 'monthly':
+            nextDelivery.setMonth(nextDelivery.getMonth() + 1);
+            break;
+          case 'quarterly':
+            nextDelivery.setMonth(nextDelivery.getMonth() + 3);
+            break;
+          default:
+            break;
+        }
+        await subscription.update({ next_delivery_date: nextDelivery });
+      }
+    } else {
+      // Build order from explicit items
+      if (!items || items.length === 0) {
+        return res.status(400).json({ message: 'Items are required when no subscription_id is provided' });
+      }
+
+      orderItemsPayload = [];
+      for (const item of items) {
+        const product = await Product.findByPk(item.product_id, {
+          include: [{ model: Farmer, as: 'farmer', attributes: ['name'] }]
+        });
+        if (!product) {
+          return res.status(404).json({ message: `Product ${item.product_id} not found` });
+        }
+        if (product.is_available === false) {
+          return res.status(400).json({ message: `Product ${product.name} is not available` });
+        }
+
+        const price = parseFloat(product.price);
+        const lineTotal = price * item.quantity;
+        subtotal += lineTotal;
+
+        orderItemsPayload.push({
+          product_id: product.product_id,
+          quantity: item.quantity,
+          price_at_purchase: price,
+          product_name: product.name,
+          product_unit: product.unit,
+          farmer_name: product.farmer?.name || 'N/A'
+        });
+      }
+
+      taxAmount = subtotal * 0.19; // IVA 19%
+      totalAmount = subtotal + taxAmount + shippingCost;
+    }
+
+    // Create order
+    const order = await Order.create({
+      user_id,
+      address_id,
+      delivery_date,
+      subscription_id: subscription_id || null,
+      subtotal,
+      tax_amount: taxAmount,
+      shipping_cost: shippingCost,
+      total_amount: totalAmount,
+      special_instructions,
+      status: 'pending'
+    });
+
+    // Create items
+    await Promise.all(
+      orderItemsPayload.map(oi => OrderItem.create({ ...oi, order_id: order.order_id }))
+    );
+
+    // Fetch full order
+    const completeOrder = await Order.findByPk(order.order_id, {
+      include: [
+        { model: User, as: 'user', attributes: ['user_id', 'name', 'email'] },
+        { model: Address, as: 'address' },
+        { model: Subscription, as: 'subscription' },
+        { model: OrderItem, as: 'orderItems', include: [{ model: Product, as: 'product' }] }
+      ]
+    });
+
+    res.status(201).json({ message: 'Order created successfully', order: completeOrder });
+  } catch (error) {
+    console.error('Admin create order error:', error);
+    res.status(500).json({ message: 'Failed to create order' });
+  }
+});
+
+// Admin routes - Update order (PUT)
+router.put('/admin/:id', authenticateToken, requireAdmin, validateId('id'), validateOrderAdminUpdate, async (req, res) => {
+  try {
+    const order = await Order.findByPk(req.params.id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (['delivered', 'cancelled'].includes(order.status)) {
+      return res.status(400).json({ message: 'Cannot update a delivered or cancelled order' });
+    }
+
+    const { address_id, delivery_date, items, special_instructions, shipping_cost } = req.body;
+
+    // Validate address if provided
+    if (address_id) {
+      const address = await Address.findOne({ where: { address_id, user_id: order.user_id } });
+      if (!address) {
+        return res.status(404).json({ message: 'Address not found for user' });
+      }
+      order.address_id = address_id;
+    }
+
+    if (delivery_date) order.delivery_date = delivery_date;
+    if (typeof special_instructions !== 'undefined') order.special_instructions = special_instructions;
+    if (typeof shipping_cost !== 'undefined') order.shipping_cost = parseFloat(shipping_cost) || 0;
+
+    // Handle items replacement if provided
+    if (items && items.length > 0) {
+      await OrderItem.destroy({ where: { order_id: order.order_id } });
+
+      let subtotal = 0;
+      const orderItemsPayload = [];
+
+      for (const item of items) {
+        const product = await Product.findByPk(item.product_id, {
+          include: [{ model: Farmer, as: 'farmer', attributes: ['name'] }]
+        });
+        if (!product) {
+          return res.status(404).json({ message: `Product ${item.product_id} not found` });
+        }
+        if (product.is_available === false) {
+          return res.status(400).json({ message: `Product ${product.name} is not available` });
+        }
+
+        const price = parseFloat(product.price);
+        const lineTotal = price * item.quantity;
+        subtotal += lineTotal;
+
+        orderItemsPayload.push({
+          order_id: order.order_id,
+          product_id: product.product_id,
+          quantity: item.quantity,
+          price_at_purchase: price,
+          product_name: product.name,
+          product_unit: product.unit,
+          farmer_name: product.farmer?.name || 'N/A'
+        });
+      }
+
+      const taxAmount = subtotal * 0.19;
+      const shippingCost = order.shipping_cost || 0;
+      const totalAmount = subtotal + taxAmount + shippingCost;
+
+      order.subtotal = subtotal;
+      order.tax_amount = taxAmount;
+      order.total_amount = totalAmount;
+
+      await OrderItem.bulkCreate(orderItemsPayload);
+    }
+
+    await order.save();
+
+    const updatedOrder = await Order.findByPk(order.order_id, {
+      include: [
+        { model: User, as: 'user', attributes: ['user_id', 'name', 'email'] },
+        { model: Address, as: 'address' },
+        { model: Subscription, as: 'subscription' },
+        { model: OrderItem, as: 'orderItems', include: [{ model: Product, as: 'product' }] }
+      ]
+    });
+
+    res.json({ message: 'Order updated successfully', order: updatedOrder });
+  } catch (error) {
+    console.error('Admin update order error:', error);
+    res.status(500).json({ message: 'Failed to update order' });
+  }
+});
+
+// Admin routes - Partial update (PATCH)
+router.patch('/admin/:id', authenticateToken, requireAdmin, validateId('id'), validateOrderAdminPartial, async (req, res) => {
+  try {
+    const order = await Order.findByPk(req.params.id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (['delivered', 'cancelled'].includes(order.status)) {
+      return res.status(400).json({ message: 'Cannot update a delivered or cancelled order' });
+    }
+
+    const { address_id, delivery_date, items, special_instructions, shipping_cost } = req.body;
+
+    // Apply same logic as PUT for provided fields
+    if (address_id) {
+      const address = await Address.findOne({ where: { address_id, user_id: order.user_id } });
+      if (!address) {
+        return res.status(404).json({ message: 'Address not found for user' });
+      }
+      order.address_id = address_id;
+    }
+
+    if (delivery_date) order.delivery_date = delivery_date;
+    if (typeof special_instructions !== 'undefined') order.special_instructions = special_instructions;
+    if (typeof shipping_cost !== 'undefined') order.shipping_cost = parseFloat(shipping_cost) || 0;
+
+    if (items && items.length > 0) {
+      await OrderItem.destroy({ where: { order_id: order.order_id } });
+
+      let subtotal = 0;
+      const orderItemsPayload = [];
+
+      for (const item of items) {
+        const product = await Product.findByPk(item.product_id, {
+          include: [{ model: Farmer, as: 'farmer', attributes: ['name'] }]
+        });
+        if (!product) {
+          return res.status(404).json({ message: `Product ${item.product_id} not found` });
+        }
+        if (product.is_available === false) {
+          return res.status(400).json({ message: `Product ${product.name} is not available` });
+        }
+
+        const price = parseFloat(product.price);
+        const lineTotal = price * item.quantity;
+        subtotal += lineTotal;
+
+        orderItemsPayload.push({
+          order_id: order.order_id,
+          product_id: product.product_id,
+          quantity: item.quantity,
+          price_at_purchase: price,
+          product_name: product.name,
+          product_unit: product.unit,
+          farmer_name: product.farmer?.name || 'N/A'
+        });
+      }
+
+      const taxAmount = subtotal * 0.19;
+      const shippingCost = order.shipping_cost || 0;
+      const totalAmount = subtotal + taxAmount + shippingCost;
+
+      order.subtotal = subtotal;
+      order.tax_amount = taxAmount;
+      order.total_amount = totalAmount;
+
+      await OrderItem.bulkCreate(orderItemsPayload);
+    }
+
+    await order.save();
+
+    const updatedOrder = await Order.findByPk(order.order_id, {
+      include: [
+        { model: User, as: 'user', attributes: ['user_id', 'name', 'email'] },
+        { model: Address, as: 'address' },
+        { model: Subscription, as: 'subscription' },
+        { model: OrderItem, as: 'orderItems', include: [{ model: Product, as: 'product' }] }
+      ]
+    });
+
+    res.json({ message: 'Order updated successfully', order: updatedOrder });
+  } catch (error) {
+    console.error('Admin patch order error:', error);
+    res.status(500).json({ message: 'Failed to update order' });
+  }
+});
+
+// Admin routes - Cancel (soft delete)
+router.delete('/admin/:id', authenticateToken, requireAdmin, validateId('id'), async (req, res) => {
+  try {
+    const { cancellation_reason } = req.body || {};
+    const order = await Order.findByPk(req.params.id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (['delivered', 'cancelled'].includes(order.status)) {
+      return res.status(400).json({ message: 'Order cannot be cancelled' });
+    }
+
+    await order.update({
+      status: 'cancelled',
+      cancellation_reason,
+      cancelled_at: new Date()
+    });
+
+    res.json({ message: 'Order cancelled successfully', order });
+  } catch (error) {
+    console.error('Admin cancel order error:', error);
+    res.status(500).json({ message: 'Failed to cancel order' });
+  }
+});
+
+// Admin routes - Restore
+router.patch('/admin/:id/restore', authenticateToken, requireAdmin, validateId('id'), async (req, res) => {
+  try {
+    const order = await Order.findByPk(req.params.id);
+    if (!order) {
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (order.status !== 'cancelled') {
+      return res.status(400).json({ message: 'Only cancelled orders can be restored' });
+    }
+
+    await order.update({ status: 'pending', cancelled_at: null, cancellation_reason: null });
+
+    res.json({ message: 'Order restored successfully', order });
+  } catch (error) {
+    console.error('Admin restore order error:', error);
+    res.status(500).json({ message: 'Failed to restore order' });
+  }
+});

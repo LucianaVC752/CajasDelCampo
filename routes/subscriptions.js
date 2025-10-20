@@ -507,6 +507,36 @@ router.put('/admin/:id', authenticateToken, requireAdmin, validateId('id'), vali
   }
 });
 
+// Admin routes - Create subscription
+router.post('/admin', authenticateToken, requireAdmin, validateSubscription, async (req, res) => {
+  try {
+    const { user_id, plan_name, frequency, price, box_size, custom_preferences } = req.body;
+
+    if (!user_id || isNaN(parseInt(user_id, 10))) {
+      return res.status(400).json({ message: 'Valid user_id is required' });
+    }
+
+    const user = await User.findByPk(user_id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const subscription = await Subscription.create({
+      user_id,
+      plan_name,
+      frequency,
+      price,
+      box_size,
+      custom_preferences: custom_preferences || {}
+    });
+
+    res.status(201).json({ message: 'Subscription created successfully', subscription });
+  } catch (error) {
+    console.error('Admin create subscription error:', error);
+    res.status(500).json({ message: 'Failed to create subscription' });
+  }
+});
+
 // Admin routes - Cancel subscription
 router.patch('/admin/:id/cancel', authenticateToken, requireAdmin, validateId('id'), async (req, res) => {
   try {
