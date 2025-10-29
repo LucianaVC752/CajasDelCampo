@@ -18,11 +18,15 @@ import {
   Email,
   Lock,
   Google,
+  CheckCircle,
+  Cancel,
 } from '@mui/icons-material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '../contexts/AuthContext';
 import { motion } from 'framer-motion';
+import { validateForm, FORM_VALIDATIONS } from '../utils/validation';
+import { sanitizeFormData } from '../utils/sanitization';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -30,26 +34,43 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [validationErrors, setValidationErrors] = useState({});
 
   const {
     register,
     handleSubmit,
     formState: { errors },
+    watch,
   } = useForm();
+  const watchedEmail = watch('email');
+  const watchedPassword = watch('password');
 
   const onSubmit = async (data) => {
     setLoading(true);
     setError('');
-    
-    const result = await login(data.email, data.password);
-    
-    if (result.success) {
-      navigate('/dashboard');
-    } else {
-      setError(result.error);
+    setValidationErrors({});
+
+    try {
+      const validation = validateForm(data, FORM_VALIDATIONS.login);
+      if (!validation.isValid) {
+        setValidationErrors(validation.errors);
+        setError('Por favor corrige los errores en el formulario');
+        return;
+      }
+
+      const sanitizedData = sanitizeFormData(data, ['password']);
+      const result = await login(sanitizedData.email, sanitizedData.password);
+
+      if (result?.success) {
+        navigate('/dashboard');
+      } else {
+        setError(result?.error || 'Credenciales inválidas');
+      }
+    } catch (e) {
+      setError(e.message || 'Error al iniciar sesión');
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const handleGoogleLogin = () => {
@@ -98,13 +119,7 @@ const Login = () => {
 
           <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ width: '100%' }}>
             <TextField
-              {...register('email', {
-                required: 'El email es requerido',
-                pattern: {
-                  value: /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i,
-                  message: 'Email inválido',
-                },
-              })}
+              {...register('email', FORM_VALIDATIONS.login.email)}
               margin="normal"
               fullWidth
               id="email"
@@ -112,25 +127,28 @@ const Login = () => {
               name="email"
               autoComplete="email"
               autoFocus
-              error={!!errors.email}
-              helperText={errors.email?.message}
+              error={!!errors.email || !!validationErrors.email}
+              helperText={errors.email?.message || validationErrors.email}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
                     <Email color="action" />
                   </InputAdornment>
                 ),
+                endAdornment: validationErrors.email ? (
+                  <InputAdornment position="end">
+                    <Cancel color="error" />
+                  </InputAdornment>
+                ) : watchedEmail ? (
+                  <InputAdornment position="end">
+                    <CheckCircle color="success" />
+                  </InputAdornment>
+                ) : null,
               }}
             />
             
             <TextField
-              {...register('password', {
-                required: 'La contraseña es requerida',
-                minLength: {
-                  value: 8,
-                  message: 'La contraseña debe tener al menos 8 caracteres',
-                },
-              })}
+              {...register('password', FORM_VALIDATIONS.login.password)}
               margin="normal"
               fullWidth
               name="password"
@@ -138,8 +156,8 @@ const Login = () => {
               type={showPassword ? 'text' : 'password'}
               id="password"
               autoComplete="current-password"
-              error={!!errors.password}
-              helperText={errors.password?.message}
+              error={!!errors.password || !!validationErrors.password}
+              helperText={errors.password?.message || validationErrors.password}
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
@@ -155,6 +173,11 @@ const Login = () => {
                     >
                       {showPassword ? <VisibilityOff /> : <Visibility />}
                     </IconButton>
+                    {validationErrors.password ? (
+                      <Cancel color="error" sx={{ ml: 1 }} />
+                    ) : watchedPassword && watchedPassword.length >= 8 ? (
+                      <CheckCircle color="success" sx={{ ml: 1 }} />
+                    ) : null}
                   </InputAdornment>
                 ),
               }}

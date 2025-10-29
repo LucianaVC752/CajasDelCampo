@@ -31,6 +31,8 @@ import { useAuth } from '../contexts/AuthContext';
 import api from '../services/api';
 import toast from 'react-hot-toast';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { validateForm, FORM_VALIDATIONS } from '../utils/validation';
+import { sanitizeFormData } from '../utils/sanitization';
 
 const Addresses = () => {
   const { user } = useAuth();
@@ -109,18 +111,23 @@ const Addresses = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     
-    // Validación básica en el frontend
-    if (!formData.address_line1 || !formData.city || !formData.department) {
-      toast.error('Por favor completa todos los campos obligatorios');
+    // Validación centralizada
+      const validation = validateForm(formData, FORM_VALIDATIONS.address);
+    if (!validation.isValid) {
+      const errorMessages = Object.values(validation.errors).join(', ');
+      toast.error(`Errores de validación: ${errorMessages}`);
       return;
     }
     
+    // Sanitizar datos del formulario
+    const sanitizedData = sanitizeFormData(formData);
+    
     try {
       if (editingAddress) {
-        await api.put(`/users/addresses/${editingAddress.address_id}`, formData);
+        await api.put(`/users/addresses/${editingAddress.address_id}`, sanitizedData);
         toast.success('Dirección actualizada exitosamente');
       } else {
-        await api.post('/users/addresses', formData);
+        await api.post('/users/addresses', sanitizedData);
         toast.success('Dirección creada exitosamente');
       }
       fetchAddresses();

@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { encrypt, decrypt } = require('../utils/crypto');
 const { sequelize } = require('../config/database-sqlite');
 
 const Payment = sequelize.define('Payment', {
@@ -43,11 +44,32 @@ const Payment = sequelize.define('Payment', {
   },
   gateway_response: {
     type: DataTypes.JSON,
-    allowNull: true
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('gateway_response');
+      const dec = decrypt(raw);
+      return dec || null;
+    },
+    set(val) {
+      if (val === null || val === undefined) {
+        this.setDataValue('gateway_response', val);
+      } else {
+        const str = typeof val === 'string' ? val : JSON.stringify(val);
+        this.setDataValue('gateway_response', encrypt(str));
+      }
+    }
   },
   failure_reason: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('failure_reason');
+      const dec = decrypt(raw);
+      return dec || null;
+    },
+    set(val) {
+      this.setDataValue('failure_reason', val == null ? val : encrypt(val));
+    }
   },
   refund_amount: {
     type: DataTypes.DECIMAL(10, 2),
@@ -62,7 +84,15 @@ const Payment = sequelize.define('Payment', {
   },
   refund_reason: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('refund_reason');
+      const dec = decrypt(raw);
+      return dec || null;
+    },
+    set(val) {
+      this.setDataValue('refund_reason', val == null ? val : encrypt(val));
+    }
   },
   currency: {
     type: DataTypes.STRING(3),

@@ -2,6 +2,8 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const { body, validationResult } = require('express-validator');
+const rateLimit = require('express-rate-limit');
+const { logAuthEvent } = require('../utils/securityLogger');
 const { User } = require('../models');
 const { authenticateToken } = require('../middleware/auth');
 const { validateUserRegistration, validateUserLogin } = require('../middleware/validation');
@@ -61,28 +63,89 @@ router.post('/register', validateUserRegistration, async (req, res) => {
 });
 
 // Login user
-router.post('/login', validateUserLogin, async (req, res) => {
+// Rate limit general para /login
+const loginRateLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 50,
+  standardHeaders: true,
+  legacyHeaders: false,
+  handler: (req, res) => {
+    logAuthEvent(req, 'rate_limit', 'Too many requests to /auth/login');
+    return res.status(429).json({ message: 'Too many login requests. Try later.' });
+  }
+});
+
+// Bloqueo temporal por intentos fallidos (IP + email)
+const loginFailures = new Map();
+const LOCK_THRESHOLD = 5;
+const FAILURE_WINDOW_MS = 10 * 60 * 1000;
+const LOCK_DURATION_MS = 15 * 60 * 1000;
+
+function keyFor(req) {
+  const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+  const email = (req.body && req.body.email) ? String(req.body.email).toLowerCase() : 'no-email';
+  return `${ip}|${email}`;
+}
+
+function checkLoginLock(req, res, next) {
+  const key = keyFor(req);
+  const data = loginFailures.get(key);
+  const now = Date.now();
+  if (data && data.lockedUntil && data.lockedUntil > now) {
+    const waitSecs = Math.ceil((data.lockedUntil - now) / 1000);
+    logAuthEvent(req, 'lockout_active', `Login locked for ${waitSecs}s`);
+    return res.status(429).json({ message: 'Account temporarily locked due to failed attempts', retry_after_seconds: waitSecs });
+  }
+  next();
+}
+
+function recordFailure(req) {
+  const key = keyFor(req);
+  const now = Date.now();
+  const data = loginFailures.get(key) || { failures: [], lockedUntil: null };
+  data.failures = data.failures.filter(ts => now - ts < FAILURE_WINDOW_MS);
+  data.failures.push(now);
+  if (data.failures.length >= LOCK_THRESHOLD) {
+    data.lockedUntil = now + LOCK_DURATION_MS;
+    logAuthEvent(req, 'lockout_set', `Lock set for ${LOCK_DURATION_MS/60000} minutes`);
+  }
+  loginFailures.set(key, data);
+}
+
+function resetFailures(req) {
+  const key = keyFor(req);
+  loginFailures.delete(key);
+}
+
+router.post('/login', loginRateLimiter, checkLoginLock, validateUserLogin, async (req, res) => {
   try {
     const { email, password } = req.body;
 
     // Find user by email
     const user = await User.findOne({ where: { email } });
     if (!user) {
+      recordFailure(req);
+      logAuthEvent(req, 'login_failed', 'User not found');
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     // Check if user is active
     if (!user.is_active) {
+      recordFailure(req);
+      logAuthEvent(req, 'login_failed', 'Account deactivated');
       return res.status(401).json({ message: 'Account is deactivated' });
     }
 
     // Validate password
     const isValidPassword = await user.validatePassword(password);
     if (!isValidPassword) {
+      recordFailure(req);
+      logAuthEvent(req, 'login_failed', 'Wrong password');
       return res.status(401).json({ message: 'Invalid credentials' });
     }
 
     // Generate tokens
+    resetFailures(req);
     const { accessToken, refreshToken } = generateTokens(user.user_id);
 
     res.json({
@@ -92,6 +155,7 @@ router.post('/login', validateUserLogin, async (req, res) => {
       refreshToken
     });
   } catch (error) {
+    logAuthEvent(req, 'login_error', error.message || 'Unexpected error');
     console.error('Login error:', error);
     res.status(500).json({ message: 'Login failed' });
   }
@@ -202,10 +266,15 @@ router.post('/forgot-password', [
 router.post('/reset-password', [
   body('token').notEmpty().withMessage('Reset token is required'),
   body('password')
-    .isLength({ min: 8 })
-    .withMessage('Password must be at least 8 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('Password must contain at least one lowercase letter, one uppercase letter, and one number'),
+    .isLength({ min: 12, max: 128 })
+    .withMessage('Password must be between 12 and 128 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).*$/)
+    .withMessage('Password must include lowercase, uppercase, number and special char')
+    .custom((value, { req }) => {
+      if (/\s/.test(value)) throw new Error('Password must not contain spaces');
+      if (req.body.email && value.includes(req.body.email)) throw new Error('Password must not include email');
+      return true;
+    }),
   async (req, res) => {
     try {
       const errors = validationResult(req);

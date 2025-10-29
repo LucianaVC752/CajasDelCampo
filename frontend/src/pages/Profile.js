@@ -19,6 +19,8 @@ import {
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { motion } from 'framer-motion';
+import { validateForm, FORM_VALIDATIONS } from '../utils/validation';
+import { sanitizeFormData } from '../utils/sanitization';
 
 const Profile = () => {
   const { user, updateProfile } = useAuth();
@@ -51,8 +53,21 @@ const Profile = () => {
     e.preventDefault();
     setLoading(true);
     setSuccess(false);
+    
+    // Validación y sanitización previa
+    const validation = validateForm(formData, FORM_VALIDATIONS.profile);
+    if (!validation.isValid) {
+      // Mostrar el primer error de validación
+      const firstError = Object.values(validation.errors)[0];
+      // Reutilizamos Alert de éxito para mostrar error temporal
+      // En una mejora futura, se puede renderizar un Alert de error persistente
+      alert(firstError);
+      setLoading(false);
+      return;
+    }
+    const sanitizedData = sanitizeFormData(formData);
 
-    const result = await updateProfile(formData);
+    const result = await updateProfile(sanitizedData);
     
     if (result.success) {
       setSuccess(true);
@@ -101,6 +116,7 @@ const Profile = () => {
                     name="name"
                     value={formData.name}
                     onChange={handleChange}
+                    inputProps={{ maxLength: 100 }}
                     InputProps={{
                       startAdornment: <Person sx={{ mr: 1, color: 'text.secondary' }} />,
                     }}
@@ -114,6 +130,7 @@ const Profile = () => {
                     name="phone_number"
                     value={formData.phone_number}
                     onChange={handleChange}
+                    inputProps={{ maxLength: 16 }}
                     InputProps={{
                       startAdornment: <Phone sx={{ mr: 1, color: 'text.secondary' }} />,
                     }}

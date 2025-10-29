@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { encrypt, decrypt } = require('../utils/crypto');
 const { sequelize } = require('../config/database-sqlite');
 
 const Address = sequelize.define('Address', {
@@ -49,7 +50,15 @@ const Address = sequelize.define('Address', {
   },
   details: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('details');
+      const dec = decrypt(raw);
+      return dec || null;
+    },
+    set(val) {
+      this.setDataValue('details', val == null ? val : encrypt(val));
+    }
   },
   is_default: {
     type: DataTypes.BOOLEAN,

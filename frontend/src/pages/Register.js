@@ -12,6 +12,7 @@ import {
   IconButton,
   Divider,
   Grid,
+  LinearProgress,
 } from '@mui/material';
 import {
   Visibility,
@@ -21,11 +22,15 @@ import {
   Person,
   Phone,
   Google,
+  CheckCircle,
+  Cancel,
 } from '@mui/icons-material';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { useAuth } from '../contexts/AuthContext';
 import { motion } from 'framer-motion';
+import { validateForm, getPasswordStrength, FORM_VALIDATIONS } from '../utils/validation';
+import { sanitizeFormData } from '../utils/sanitization';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -34,29 +39,44 @@ const Register = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [passwordStrength, setPasswordStrength] = useState({ score: 0, feedback: [] });
+  const [validationErrors, setValidationErrors] = useState({});
 
   const {
     register,
     handleSubmit,
     watch,
     formState: { errors },
+    trigger,
   } = useForm();
 
   const password = watch('password');
+  const watchedFields = watch();
 
   const onSubmit = async (data) => {
     setLoading(true);
     setError('');
-    
-    const result = await registerUser(data);
-    
-    if (result.success) {
+    setValidationErrors({});
+
+    try {
+      // Validación del lado del cliente
+      const validation = validateForm(data, FORM_VALIDATIONS.register);
+      if (!validation.isValid) {
+        setValidationErrors(validation.errors);
+        setError('Por favor corrige los errores en el formulario');
+        return;
+      }
+
+      // Sanitizar datos antes de enviar
+      const sanitizedData = sanitizeFormData(data, ['password', 'confirmPassword']);
+      
+      await registerUser(sanitizedData);
       navigate('/dashboard');
-    } else {
-      setError(result.error);
+    } catch (error) {
+      setError(error.message || 'Error al crear la cuenta');
+    } finally {
+      setLoading(false);
     }
-    
-    setLoading(false);
   };
 
   const handleGoogleLogin = () => {
@@ -64,12 +84,67 @@ const Register = () => {
     console.log('Google login clicked');
   };
 
+  // Efecto para evaluar la fortaleza de la contraseña
+  React.useEffect(() => {
+    if (password) {
+      const strength = getPasswordStrength(password);
+      setPasswordStrength(strength);
+    } else {
+      setPasswordStrength({ score: 0, feedback: [] });
+    }
+  }, [password]);
+
+  // Validación progresiva en tiempo real
+  React.useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      if (Object.keys(watchedFields).length > 0) {
+        const validation = validateForm(watchedFields, FORM_VALIDATIONS.register);
+        setValidationErrors(validation.errors);
+      }
+    }, 500); // Debounce de 500ms
+
+    return () => clearTimeout(timeoutId);
+  }, [watchedFields]);
+
   const togglePasswordVisibility = () => {
     setShowPassword(!showPassword);
   };
 
   const toggleConfirmPasswordVisibility = () => {
     setShowConfirmPassword(!showConfirmPassword);
+  };
+
+  const getPasswordStrengthColor = (score) => {
+    switch (score) {
+      case 0:
+      case 1:
+        return 'error';
+      case 2:
+        return 'warning';
+      case 3:
+        return 'info';
+      case 4:
+        return 'success';
+      default:
+        return 'error';
+    }
+  };
+
+  const getPasswordStrengthText = (score) => {
+    switch (score) {
+      case 0:
+        return 'Muy débil';
+      case 1:
+        return 'Débil';
+      case 2:
+        return 'Regular';
+      case 3:
+        return 'Fuerte';
+      case 4:
+        return 'Muy fuerte';
+      default:
+        return 'Muy débil';
+    }
   };
 
   return (
@@ -111,50 +186,57 @@ const Register = () => {
             <Grid container spacing={2}>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  {...register('name', {
-                    required: 'El nombre es requerido',
-                    minLength: {
-                      value: 2,
-                      message: 'El nombre debe tener al menos 2 caracteres',
-                    },
-                  })}
+                  {...register('name', FORM_VALIDATIONS.register.name)}
                   fullWidth
                   id="name"
                   label="Nombre"
                   name="name"
                   autoComplete="given-name"
-                  error={!!errors.name}
-                  helperText={errors.name?.message}
+                  error={!!errors.name || !!validationErrors.name}
+                  helperText={errors.name?.message || validationErrors.name}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
                         <Person color="action" />
                       </InputAdornment>
                     ),
+                    endAdornment: validationErrors.name ? (
+                      <InputAdornment position="end">
+                        <Cancel color="error" />
+                      </InputAdornment>
+                    ) : watchedFields.name && !validationErrors.name && watchedFields.name.length >= 2 ? (
+                      <InputAdornment position="end">
+                        <CheckCircle color="success" />
+                      </InputAdornment>
+                    ) : null,
                   }}
                 />
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField
-                  {...register('phone_number', {
-                    pattern: {
-                      value: /^[\+]?[1-9][\d]{0,15}$/,
-                      message: 'Número de teléfono inválido',
-                    },
-                  })}
+                  {...register('phone_number', FORM_VALIDATIONS.register.phone_number)}
                   fullWidth
                   id="phone_number"
                   label="Teléfono (Opcional)"
                   name="phone_number"
                   autoComplete="tel"
-                  error={!!errors.phone_number}
-                  helperText={errors.phone_number?.message}
+                  error={!!errors.phone_number || !!validationErrors.phone_number}
+                  helperText={errors.phone_number?.message || validationErrors.phone_number}
                   InputProps={{
                     startAdornment: (
                       <InputAdornment position="start">
                         <Phone color="action" />
                       </InputAdornment>
                     ),
+                    endAdornment: validationErrors.phone_number ? (
+                      <InputAdornment position="end">
+                        <Cancel color="error" />
+                      </InputAdornment>
+                    ) : watchedFields.phone_number && !validationErrors.phone_number && watchedFields.phone_number.length > 0 ? (
+                      <InputAdornment position="end">
+                        <CheckCircle color="success" />
+                      </InputAdornment>
+                    ) : null,
                   }}
                 />
               </Grid>
@@ -223,6 +305,23 @@ const Register = () => {
                     ),
                   }}
                 />
+                {/* Indicador de fortaleza de contraseña */}
+                <Box sx={{ mt: 1 }}>
+                  <Typography variant="caption" color="text.secondary">
+                    Fortaleza: {getPasswordStrengthText(passwordStrength.score)}
+                  </Typography>
+                  <LinearProgress
+                    variant="determinate"
+                    value={(passwordStrength.score / 4) * 100}
+                    color={getPasswordStrengthColor(passwordStrength.score)}
+                    sx={{ mt: 0.5 }}
+                  />
+                  {passwordStrength.feedback?.length > 0 && (
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      {passwordStrength.feedback.join(' • ')}
+                    </Typography>
+                  )}
+                </Box>
               </Grid>
               <Grid item xs={12} sm={6}>
                 <TextField

@@ -1,6 +1,24 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authAPI } from '../services/api';
 import toast from 'react-hot-toast';
+import { 
+  storeTokens, 
+  getAccessToken, 
+  getRefreshToken, 
+  getUserData, 
+  clearAuthData, 
+  isAuthenticated as checkAuthentication,
+  isTokenExpired,
+  shouldRefreshToken,
+  updateLastActivity,
+  setupInactivityTimer,
+  handleFailedLogin,
+  clearFailedLogins,
+  checkLoginLock,
+  validateCredentials
+} from '../utils/auth';
+import { initializeCsrfProtection, clearCsrfTokens } from '../utils/csrf';
+import { sanitizeFormData } from '../utils/sanitization';
 
 const AuthContext = createContext();
 
@@ -15,7 +33,9 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [token, setToken] = useState(localStorage.getItem('accessToken'));
+  const [token, setToken] = useState(getAccessToken());
+  const [loginAttempts, setLoginAttempts] = useState({});
+  const [inactivityCleanup, setInactivityCleanup] = useState(null);
 
   // Set up axios interceptor for token
   useEffect(() => {
@@ -26,40 +46,114 @@ export const AuthProvider = ({ children }) => {
     }
   }, [token]);
 
-  // Check if user is authenticated on app load
+  // Initialize security and check authentication on app load
   useEffect(() => {
-    const checkAuth = async () => {
-      if (token) {
-        try {
-          const response = await authAPI.get('/auth/me');
-          setUser(response.data.user);
-        } catch (error) {
-          console.error('Auth check failed:', error);
-          localStorage.removeItem('accessToken');
-          localStorage.removeItem('refreshToken');
-          setToken(null);
+    const initializeAuth = async () => {
+      try {
+        // Inicializar protección CSRF
+        await initializeCsrfProtection();
+        
+        // Verificar autenticación existente
+        const storedToken = getAccessToken();
+        const storedUser = getUserData();
+        
+        if (storedToken && storedUser && checkAuthentication()) {
+          // Verificar si el token necesita refresh
+          if (shouldRefreshToken(storedToken)) {
+            try {
+              await refreshTokenSilently();
+            } catch (error) {
+              console.warn('Token refresh failed during initialization:', error);
+              handleLogout();
+            }
+          } else {
+            setToken(storedToken);
+            setUser(storedUser);
+            
+            // Configurar timer de inactividad
+            const cleanup = setupInactivityTimer(handleLogout);
+            setInactivityCleanup(() => cleanup);
+          }
+        } else if (storedToken) {
+          // Token existe pero no es válido, limpiar
+          handleLogout();
         }
+      } catch (error) {
+        console.error('Auth initialization failed:', error);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
-    checkAuth();
-  }, [token]);
+    initializeAuth();
+    
+    // Cleanup al desmontar
+    return () => {
+      if (inactivityCleanup) {
+        inactivityCleanup();
+      }
+    };
+  }, []);
 
   const login = async (email, password) => {
     try {
-      const response = await authAPI.post('/auth/login', { email, password });
+      // Validar credenciales antes de enviar
+      const validation = validateCredentials(email, password);
+      if (!validation.isValid) {
+        const firstError = Object.values(validation.errors)[0];
+        toast.error(firstError);
+        return { success: false, error: firstError };
+      }
+      
+      // Verificar bloqueo por intentos fallidos
+      const lockStatus = checkLoginLock(email);
+      if (lockStatus.isLocked) {
+        const message = `Cuenta bloqueada por ${lockStatus.remainingMinutes} minutos debido a múltiples intentos fallidos`;
+        toast.error(message);
+        return { success: false, error: message };
+      }
+      
+      // Sanitizar datos de entrada
+      const sanitizedData = sanitizeFormData({ email, password });
+      
+      const response = await authAPI.post('/auth/login', sanitizedData);
       const { user, accessToken, refreshToken } = response.data;
       
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
+      // Almacenar tokens de forma segura
+      storeTokens(accessToken, refreshToken, user);
       setToken(accessToken);
       setUser(user);
+      
+      // Limpiar intentos fallidos
+      clearFailedLogins(email);
+      setLoginAttempts(prev => ({ ...prev, [email]: 0 }));
+      
+      // Configurar timer de inactividad
+      if (inactivityCleanup) {
+        inactivityCleanup();
+      }
+      const cleanup = setupInactivityTimer(handleLogout);
+      setInactivityCleanup(() => cleanup);
       
       toast.success('¡Bienvenido!');
       return { success: true };
     } catch (error) {
       const message = error.response?.data?.message || 'Error al iniciar sesión';
+      
+      // Manejar intentos fallidos
+      const failureStatus = handleFailedLogin(email);
+      setLoginAttempts(prev => ({ ...prev, [email]: failureStatus.attempts }));
+      
+      if (failureStatus.isLocked) {
+        const lockMessage = `Demasiados intentos fallidos. Cuenta bloqueada por ${failureStatus.remainingMinutes} minutos`;
+        toast.error(lockMessage);
+        return { success: false, error: lockMessage };
+      } else if (failureStatus.remainingAttempts) {
+        const attemptMessage = `${message}. Intentos restantes: ${failureStatus.remainingAttempts}`;
+        toast.error(attemptMessage);
+        return { success: false, error: attemptMessage };
+      }
+      
       toast.error(message);
       return { success: false, error: message };
     }
@@ -67,13 +161,23 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData) => {
     try {
-      const response = await authAPI.post('/auth/register', userData);
+      // Sanitizar datos de entrada
+      const sanitizedData = sanitizeFormData(userData);
+      
+      const response = await authAPI.post('/auth/register', sanitizedData);
       const { user, accessToken, refreshToken } = response.data;
       
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', refreshToken);
+      // Almacenar tokens de forma segura
+      storeTokens(accessToken, refreshToken, user);
       setToken(accessToken);
       setUser(user);
+      
+      // Configurar timer de inactividad
+      if (inactivityCleanup) {
+        inactivityCleanup();
+      }
+      const cleanup = setupInactivityTimer(handleLogout);
+      setInactivityCleanup(() => cleanup);
       
       toast.success('¡Cuenta creada exitosamente!');
       return { success: true };
@@ -84,23 +188,35 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const logout = async () => {
+  const handleLogout = async () => {
     try {
       await authAPI.post('/auth/logout');
     } catch (error) {
       console.error('Logout error:', error);
     } finally {
-      localStorage.removeItem('accessToken');
-      localStorage.removeItem('refreshToken');
+      // Limpiar todos los datos de autenticación
+      clearAuthData();
+      clearCsrfTokens();
+      
+      // Limpiar timer de inactividad
+      if (inactivityCleanup) {
+        inactivityCleanup();
+        setInactivityCleanup(null);
+      }
+      
       setToken(null);
       setUser(null);
+      setLoginAttempts({});
+      
       toast.success('Sesión cerrada');
     }
   };
+  
+  const logout = handleLogout;
 
-  const refreshToken = async () => {
+  const refreshTokenSilently = async () => {
     try {
-      const refreshTokenValue = localStorage.getItem('refreshToken');
+      const refreshTokenValue = getRefreshToken();
       if (!refreshTokenValue) {
         throw new Error('No refresh token');
       }
@@ -111,22 +227,33 @@ export const AuthProvider = ({ children }) => {
       
       const { accessToken, refreshToken: newRefreshToken } = response.data;
       
-      localStorage.setItem('accessToken', accessToken);
-      localStorage.setItem('refreshToken', newRefreshToken);
+      // Almacenar tokens de forma segura
+      storeTokens(accessToken, newRefreshToken);
       setToken(accessToken);
       
       return accessToken;
     } catch (error) {
       console.error('Token refresh failed:', error);
-      logout();
+      handleLogout();
       throw error;
     }
   };
+  
+  const refreshToken = refreshTokenSilently;
 
   const updateProfile = async (profileData) => {
     try {
-      const response = await authAPI.put('/users/profile', profileData);
-      setUser(response.data.user);
+      // Sanitizar datos del perfil
+      const sanitizedData = sanitizeFormData(profileData);
+      
+      const response = await authAPI.put('/users/profile', sanitizedData);
+      const updatedUser = response.data.user;
+      
+      setUser(updatedUser);
+      
+      // Actualizar datos almacenados
+      storeTokens(token, getRefreshToken(), updatedUser);
+      
       toast.success('Perfil actualizado');
       return { success: true };
     } catch (error) {
@@ -171,8 +298,11 @@ export const AuthProvider = ({ children }) => {
     updateProfile,
     forgotPassword,
     resetPassword,
-    isAuthenticated: !!user,
-    isAdmin: user?.role === 'admin'
+    isAuthenticated: !!user && checkAuthentication(),
+    isAdmin: user?.role === 'admin',
+    loginAttempts,
+    checkLoginLock: (email) => checkLoginLock(email),
+    updateActivity: updateLastActivity
   };
 
   return (

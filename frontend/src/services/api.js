@@ -1,4 +1,6 @@
 import axios from 'axios';
+import { setupAxiosCsrfInterceptors } from '../utils/csrf';
+import { getAccessToken, getRefreshToken, storeTokens, clearAuthData } from '../utils/auth';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 
@@ -6,6 +8,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api
 const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10000,
+  withCredentials: true, // Incluir cookies para CSRF
   headers: {
     'Content-Type': 'application/json',
   },
@@ -14,7 +17,7 @@ const api = axios.create({
 // Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('accessToken');
+    const token = getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -35,21 +38,25 @@ api.interceptors.response.use(
       originalRequest._retry = true;
 
       try {
-        const refreshToken = localStorage.getItem('refreshToken');
-        if (refreshToken) {
+        const refreshTokenValue = getRefreshToken();
+        if (refreshTokenValue) {
           const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
-            refreshToken
+            refreshToken: refreshTokenValue
+          }, {
+            withCredentials: true // Incluir cookies para CSRF
           });
 
-          const { accessToken } = response.data;
-          localStorage.setItem('accessToken', accessToken);
+          const { accessToken, refreshToken: newRefreshToken } = response.data;
+          
+          // Almacenar tokens de forma segura
+          storeTokens(accessToken, newRefreshToken);
           
           originalRequest.headers.Authorization = `Bearer ${accessToken}`;
           return api(originalRequest);
         }
       } catch (refreshError) {
-        localStorage.removeItem('accessToken');
-        localStorage.removeItem('refreshToken');
+        console.error('Token refresh failed:', refreshError);
+        clearAuthData();
         window.location.href = '/login';
         return Promise.reject(refreshError);
       }
@@ -58,6 +65,9 @@ api.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// Configurar interceptores CSRF
+setupAxiosCsrfInterceptors(api);
 
 // Auth API
 export const authAPI = api;

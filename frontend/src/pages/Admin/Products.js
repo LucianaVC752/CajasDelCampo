@@ -42,6 +42,8 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api';
 import toast from 'react-hot-toast';
+import { validateForm, FORM_VALIDATIONS } from '../../utils/validation';
+import { sanitizeFormData, validateFile, sanitizeUrl } from '../../utils/sanitization';
 
 const AdminProducts = () => {
   const { user } = useAuth();
@@ -163,6 +165,17 @@ const AdminProducts = () => {
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0] || null;
+    if (file) {
+      const isValid = validateFile(file, {
+        maxSizeMB: 2,
+        allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
+        allowedExtensions: ['.jpg', '.jpeg', '.png', '.webp'],
+      });
+      if (!isValid.valid) {
+        toast.error(isValid.reason || 'Archivo de imagen inválido');
+        return;
+      }
+    }
     setImageFile(file);
   };
 
@@ -185,6 +198,18 @@ const AdminProducts = () => {
         return;
       }
 
+      // Validación de datos del producto (sin imagen)
+      const baseData = { ...formData };
+      if (baseData.image_url) {
+        baseData.image_url = sanitizeUrl(baseData.image_url);
+      }
+      const validation = validateForm(baseData, FORM_VALIDATIONS.product);
+      if (!validation.isValid) {
+        const errorMessages = Object.values(validation.errors).join(', ');
+        toast.error(`Errores de validación: ${errorMessages}`);
+        return;
+      }
+
       // Enviar multipart/form-data si hay archivo, JSON en caso contrario
       if (imageFile) {
         const multipart = new FormData();
@@ -193,7 +218,8 @@ const AdminProducts = () => {
         const { image_url, ...rest } = formData;
         Object.entries(rest).forEach(([key, value]) => {
           // Asegurar que no se envíe undefined
-          multipart.append(key, value !== undefined && value !== null ? value : '');
+          const safeValue = value !== undefined && value !== null ? value : '';
+          multipart.append(key, safeValue);
         });
 
         if (editingProduct) {
@@ -208,11 +234,12 @@ const AdminProducts = () => {
           toast.success('Producto creado exitosamente');
         }
       } else {
+        const sanitizedData = sanitizeFormData(baseData);
         if (editingProduct) {
-          await api.patch(`/products/${editingProduct.product_id}`, formData);
+          await api.patch(`/products/${editingProduct.product_id}`, sanitizedData);
           toast.success('Producto actualizado exitosamente');
         } else {
-          await api.post('/products', formData);
+          await api.post('/products', sanitizedData);
           toast.success('Producto creado exitosamente');
         }
       }

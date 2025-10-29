@@ -1,9 +1,11 @@
 const { body, param, query, validationResult } = require('express-validator');
+const { logValidation } = require('../utils/securityLogger');
 
 // Handle validation errors
 const handleValidationErrors = (req, res, next) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    logValidation(req, errors.array());
     return res.status(400).json({
       message: 'Validation errors',
       errors: errors.array()
@@ -16,6 +18,7 @@ const handleValidationErrors = (req, res, next) => {
 const validateUserRegistration = [
   body('name')
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters'),
   body('email')
@@ -23,10 +26,15 @@ const validateUserRegistration = [
     .normalizeEmail()
     .withMessage('Valid email is required'),
   body('password')
-    .isLength({ min: 8 })
-    .withMessage('Password must be at least 8 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('Password must contain at least one lowercase letter, one uppercase letter, and one number'),
+    .isLength({ min: 12, max: 128 })
+    .withMessage('Password must be between 12 and 128 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).*$/)
+    .withMessage('Password must include lowercase, uppercase, number and special char')
+    .custom((value, { req }) => {
+      if (/\s/.test(value)) throw new Error('Password must not contain spaces');
+      if (req.body.email && value.includes(req.body.email)) throw new Error('Password must not include email');
+      return true;
+    }),
   body('phone_number')
     .optional()
     .isMobilePhone()
@@ -49,6 +57,7 @@ const validateUserUpdate = [
   body('name')
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters'),
   body('phone_number')
@@ -62,14 +71,17 @@ const validateUserUpdate = [
 const validateAddress = [
   body('address_line1')
     .trim()
+    .escape()
     .isLength({ min: 5, max: 255 })
     .withMessage('Address line 1 must be between 5 and 255 characters'),
   body('city')
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('City must be between 2 and 100 characters'),
   body('department')
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Department must be between 2 and 100 characters'),
   body('postal_code')
@@ -79,6 +91,7 @@ const validateAddress = [
   body('contact_name')
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Contact name must be between 2 and 100 characters'),
   body('contact_phone')
@@ -92,6 +105,7 @@ const validateAddress = [
 const validateProduct = [
   body('name')
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Product name must be between 2 and 100 characters'),
   body('price')
@@ -121,6 +135,7 @@ const validateProductPartial = [
   body('name')
     .optional({ checkFalsy: true })
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Product name must be between 2 and 100 characters'),
   body('price')
@@ -160,6 +175,7 @@ const validateProductPartial = [
 const validateSubscription = [
   body('plan_name')
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Plan name must be between 2 and 100 characters'),
   body('frequency')
@@ -223,10 +239,12 @@ const validatePayment = [
 const validateFarmer = [
   body('name')
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Farmer name must be between 2 and 100 characters'),
   body('location')
     .trim()
+    .escape()
     .isLength({ min: 2, max: 255 })
     .withMessage('Location must be between 2 and 255 characters'),
   body('email')
@@ -250,11 +268,13 @@ const validateFarmerPartial = [
   body('name')
     .optional({ checkFalsy: true })
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Farmer name must be between 2 and 100 characters'),
   body('location')
     .optional({ checkFalsy: true })
     .trim()
+    .escape()
     .isLength({ min: 2, max: 255 })
     .withMessage('Location must be between 2 and 255 characters'),
   body('email')
@@ -301,6 +321,7 @@ const validatePagination = [
 const validateUserAdminCreate = [
   body('name')
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters'),
   body('email')
@@ -308,10 +329,15 @@ const validateUserAdminCreate = [
     .normalizeEmail()
     .withMessage('Valid email is required'),
   body('password')
-    .isLength({ min: 8 })
-    .withMessage('Password must be at least 8 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('Password must contain at least one lowercase letter, one uppercase letter, and one number'),
+    .isLength({ min: 12, max: 128 })
+    .withMessage('Password must be between 12 and 128 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).*$/)
+    .withMessage('Password must include lowercase, uppercase, number and special char')
+    .custom((value, { req }) => {
+      if (/\s/.test(value)) throw new Error('Password must not contain spaces');
+      if (req.body.email && value.includes(req.body.email)) throw new Error('Password must not include email');
+      return true;
+    }),
   body('phone_number')
     .optional()
     .isMobilePhone()
@@ -331,6 +357,7 @@ const validateUserAdminUpdate = [
   body('name')
     .optional()
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters'),
   body('email')
@@ -352,10 +379,16 @@ const validateUserAdminUpdate = [
     .withMessage('is_active must be a boolean'),
   body('password')
     .optional({ checkFalsy: true })
-    .isLength({ min: 8 })
-    .withMessage('Password must be at least 8 characters')
-    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/)
-    .withMessage('Password must contain at least one lowercase letter, one uppercase letter, and one number'),
+    .isLength({ min: 12, max: 128 })
+    .withMessage('Password must be between 12 and 128 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^\w\s]).*$/)
+    .withMessage('Password must include lowercase, uppercase, number and special char')
+    .custom((value, { req }) => {
+      if (!value) return true;
+      if (/\s/.test(value)) throw new Error('Password must not contain spaces');
+      if (req.body.email && value.includes(req.body.email)) throw new Error('Password must not include email');
+      return true;
+    }),
   handleValidationErrors
 ];
 
@@ -363,6 +396,7 @@ const validateUserAdminPartial = [
   body('name')
     .optional({ checkFalsy: true })
     .trim()
+    .escape()
     .isLength({ min: 2, max: 100 })
     .withMessage('Name must be between 2 and 100 characters'),
   body('email')

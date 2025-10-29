@@ -1,4 +1,5 @@
 const { DataTypes } = require('sequelize');
+const { encrypt, decrypt } = require('../utils/crypto');
 const { sequelize } = require('../config/database-sqlite');
 
 const Order = sequelize.define('Order', {
@@ -87,11 +88,27 @@ const Order = sequelize.define('Order', {
   },
   delivery_notes: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('delivery_notes');
+      const dec = decrypt(raw);
+      return dec || null;
+    },
+    set(val) {
+      this.setDataValue('delivery_notes', val == null ? val : encrypt(val));
+    }
   },
   special_instructions: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('special_instructions');
+      const dec = decrypt(raw);
+      return dec || null;
+    },
+    set(val) {
+      this.setDataValue('special_instructions', val == null ? val : encrypt(val));
+    }
   },
   delivered_at: {
     type: DataTypes.DATE,
@@ -103,7 +120,15 @@ const Order = sequelize.define('Order', {
   },
   cancellation_reason: {
     type: DataTypes.TEXT,
-    allowNull: true
+    allowNull: true,
+    get() {
+      const raw = this.getDataValue('cancellation_reason');
+      const dec = decrypt(raw);
+      return dec || null;
+    },
+    set(val) {
+      this.setDataValue('cancellation_reason', val == null ? val : encrypt(val));
+    }
   }
 }, {
   tableName: 'orders',
