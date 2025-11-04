@@ -1,0 +1,1 @@
+Este directorio está reservado para pruebas end-to-end del backend.

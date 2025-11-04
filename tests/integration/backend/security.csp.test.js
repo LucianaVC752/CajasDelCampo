@@ -1,5 +1,5 @@
 const request = require('supertest');
-const app = require('../server');
+const app = require('../../../server');
 
 describe('CSP report endpoint', () => {
   it('accepts application/csp-report and returns 204', async () => {

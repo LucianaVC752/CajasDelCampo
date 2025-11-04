@@ -1,7 +1,11 @@
 module.exports = {
   testEnvironment: 'node',
-  testMatch: ['<rootDir>/__tests__/**/*.test.js'],
+  testMatch: [
+    '<rootDir>/tests/unit/**/*.test.js',
+    '<rootDir>/tests/integration/**/*.test.js'
+  ],
   setupFilesAfterEnv: ['<rootDir>/jest.setup.js'],
+  testPathIgnorePatterns: ['<rootDir>/frontend/'],
   collectCoverageFrom: [
     'routes/**/*.js',
     'middleware/**/*.js',

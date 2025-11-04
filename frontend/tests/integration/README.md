@@ -1,0 +1,1 @@
+Este directorio aloja pruebas de integración del frontend.

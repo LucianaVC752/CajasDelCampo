@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react';
-import LoadingSpinner from './LoadingSpinner';
+import LoadingSpinner from '../../src/components/UI/LoadingSpinner';
 
 describe('LoadingSpinner', () => {
   it('renderiza con el mensaje por defecto', () => {

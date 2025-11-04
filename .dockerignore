@@ -1,0 +1,8 @@
+tests/
+__tests__/
+frontend/tests/
+node_modules/
+coverage/
+.git
+.env*
+Dockerfile*

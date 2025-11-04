@@ -1,0 +1,1 @@
+Este directorio aloja pruebas unitarias del backend.
