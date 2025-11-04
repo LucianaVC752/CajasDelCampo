@@ -329,7 +329,17 @@ router.patch('/:id/restore', authenticateToken, requireAdmin, validateId('id'), 
 
     await product.update({ is_available: true });
 
-    res.json({ message: 'Product restored successfully' });
+    const restoredProduct = await Product.findByPk(product.product_id, {
+      include: [
+        {
+          model: Farmer,
+          as: 'farmer',
+          attributes: ['farmer_id', 'name', 'location']
+        }
+      ]
+    });
+
+    res.json({ message: 'Product restored successfully', product: restoredProduct });
   } catch (error) {
     console.error('Restore product error:', error);
     res.status(500).json({ message: 'Failed to restore product' });

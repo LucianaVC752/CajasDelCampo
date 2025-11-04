@@ -54,7 +54,7 @@ const Product = sequelize.define('Product', {
     type: DataTypes.STRING(50),
     allowNull: true,
     validate: {
-      isIn: [['vegetales', 'frutas', 'hierbas', 'tubérculos', 'legumbres', 'otros']]
+      isIn: [['vegetales', 'frutas', 'hierbas', 'tubérculos', 'legumbres', 'otros', 'vegetables', 'fruits', 'herbs', 'tubers', 'legumes', 'others']]
     }
   },
   is_available: {

@@ -37,7 +37,7 @@ const validateUserRegistration = [
     }),
   body('phone_number')
     .optional()
-    .isMobilePhone()
+    .matches(/^[\+]?[1-9][\d]{0,15}$/)
     .withMessage('Valid phone number is required'),
   handleValidationErrors
 ];
@@ -62,7 +62,7 @@ const validateUserUpdate = [
     .withMessage('Name must be between 2 and 100 characters'),
   body('phone_number')
     .optional()
-    .isMobilePhone()
+    .matches(/^[\+]?[1-9][\d]{0,15}$/)
     .withMessage('Valid phone number is required'),
   handleValidationErrors
 ];
@@ -122,7 +122,7 @@ const validateProduct = [
     .withMessage('Invalid unit'),
   body('category')
     .optional({ checkFalsy: true })
-    .isIn(['vegetales', 'frutas', 'hierbas', 'tubérculos', 'legumbres', 'otros'])
+    .isIn(['vegetales', 'frutas', 'hierbas', 'tubérculos', 'legumbres', 'otros', 'vegetables', 'fruits', 'herbs', 'tubers', 'legumes', 'others'])
     .withMessage('Invalid category'),
   body('farmer_id')
     .isInt({ min: 1 })
@@ -154,7 +154,7 @@ const validateProductPartial = [
     .withMessage('Invalid unit'),
   body('category')
     .optional({ checkFalsy: true })
-    .isIn(['vegetales', 'frutas', 'hierbas', 'tubérculos', 'legumbres', 'otros'])
+    .isIn(['vegetales', 'frutas', 'hierbas', 'tubérculos', 'legumbres', 'otros', 'vegetables', 'fruits', 'herbs', 'tubers', 'legumes', 'others'])
     .withMessage('Invalid category'),
   body('farmer_id')
     .optional({ checkFalsy: true })

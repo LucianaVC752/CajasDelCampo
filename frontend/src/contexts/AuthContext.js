@@ -20,7 +20,7 @@ import {
 import { initializeCsrfProtection, clearCsrfTokens } from '../utils/csrf';
 import { sanitizeFormData } from '../utils/sanitization';
 
-const AuthContext = createContext();
+export const AuthContext = createContext();
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
