@@ -58,4 +58,15 @@ function logRateLimit(req, key, info = {}) {
   });
 }
 
-module.exports = { logValidation, logAuthEvent, logRateLimit };
+function logCspReport(req, report) {
+  writeLog({
+    type: 'csp_report',
+    method: req.method,
+    path: req.originalUrl,
+    ip: req.ip,
+    userId: req.user?.user_id || null,
+    report
+  });
+}
+
+module.exports = { logValidation, logAuthEvent, logRateLimit, logCspReport };

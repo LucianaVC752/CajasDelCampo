@@ -18,10 +18,48 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Security middleware
+// Content Security Policy with explicit directives and reporting
+const cspDirectives = {
+  defaultSrc: ["'self'"],
+  scriptSrc: ["'self'", 'https://js.stripe.com'],
+  styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+  imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
+  fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+  connectSrc: ["'self'", 'https://api.stripe.com'],
+  frameSrc: ["'self'", 'https://js.stripe.com'],
+  objectSrc: ["'none'"],
+  baseUri: ["'self'"],
+  formAction: ["'self'"],
+  frameAncestors: ["'none'"],
+  upgradeInsecureRequests: [],
+  // CSP reporting: both legacy and modern for broader browser support
+  reportUri: ['/api/security/csp-report'],
+  reportTo: ['csp-endpoint']
+};
+
 app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-  contentSecurityPolicy: false // SPA/API, gestionado por frontend
+  contentSecurityPolicy: { useDefaults: false, directives: cspDirectives },
+  crossOriginResourcePolicy: { policy: 'same-site' },
+  frameguard: { action: 'deny' },
+  referrerPolicy: { policy: 'no-referrer' }
 }));
+
+// Provide Report-To header for modern CSP reporting
+app.use((req, res, next) => {
+  try {
+    const reportUrl = process.env.CSP_REPORT_URL || `${req.protocol}://${req.get('host')}/api/security/csp-report`;
+    const reportToValue = {
+      group: 'csp-endpoint',
+      max_age: 10886400,
+      endpoints: [{ url: reportUrl }],
+      include_subdomains: true
+    };
+    res.setHeader('Report-To', JSON.stringify(reportToValue));
+  } catch (e) {
+    // ignore header setting errors
+  }
+  next();
+});
 
 // Rate limiting
 const limiter = rateLimit({
@@ -32,12 +70,26 @@ const limiter = rateLimit({
 app.use('/api/', limiter);
 
 // CORS configuration (estricta)
-app.use(cors({
-  origin: (origin, cb) => cb(null, process.env.FRONTEND_URL || 'http://localhost:3000'),
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.FRONTEND_URL || 'http://localhost:3000')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    // Allow non-browser clients without Origin
+    if (!origin) return cb(null, true);
+    if (allowedOrigins.includes(origin)) return cb(null, true);
+    return cb(new Error('Not allowed by CORS'));
+  },
   credentials: true,
   methods: ['GET','POST','PUT','PATCH','DELETE','OPTIONS'],
-  allowedHeaders: ['Content-Type','Authorization','x-csrf-token']
-}));
+  allowedHeaders: ['Content-Type','Authorization','x-csrf-token'],
+  optionsSuccessStatus: 204
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -50,8 +102,32 @@ app.use(sanitizeRequest);
 // Endpoint para obtener CSRF token (double-submit cookie)
 app.get('/api/csrf-token', csrfTokenRoute);
 
-// Proteger métodos mutables
-app.use('/api', csrfProtect);
+// Endpoint para reportes CSP (report-uri y report-to) - no requiere CSRF
+app.post(
+  '/api/security/csp-report',
+  express.json({ type: ['application/csp-report', 'application/json'] }),
+  (req, res) => {
+    try {
+      const { logCspReport } = require('./utils/securityLogger');
+      const report = req.body['csp-report'] || req.body;
+      logCspReport(req, report);
+    } catch (e) {
+      // no-op
+    }
+    // No content for report endpoints
+    res.status(204).end();
+  }
+);
+
+// Proteger métodos mutables en endpoints de negocio (excluye /api/security/*)
+app.use('/api/auth', csrfProtect);
+app.use('/api/users', csrfProtect);
+app.use('/api/products', csrfProtect);
+app.use('/api/subscriptions', csrfProtect);
+app.use('/api/orders', csrfProtect);
+app.use('/api/payments', csrfProtect);
+app.use('/api/farmers', csrfProtect);
+app.use('/api/admin', csrfProtect);
 
 // Static files
 app.use('/uploads', express.static('uploads'));
@@ -145,6 +221,9 @@ const startServer = async () => {
   }
 };
 
-startServer();
+// Evitar arrancar el servidor cuando se ejecutan pruebas
+if (process.env.NODE_ENV !== 'test') {
+  startServer();
+}
 
 module.exports = app;

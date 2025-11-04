@@ -268,6 +268,52 @@ npm run build
 netlify deploy --prod --dir=build
 ```
 
+## 🔒 Seguridad y políticas de cabeceras
+
+Se reforzó la seguridad del backend con:
+
+- Content Security Policy (CSP) estricta con reporte:
+  - Directivas: `default-src 'self'`, `script-src 'self' https://js.stripe.com`, `style-src 'self' 'unsafe-inline' https://fonts.googleapis.com`, `img-src 'self' data: https: blob:`, `font-src 'self' https://fonts.gstatic.com`, `connect-src 'self' https://api.stripe.com`, `frame-src 'self' https://js.stripe.com`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'none'`.
+  - Reporte habilitado con `report-uri /api/security/csp-report` y cabecera `Report-To` (grupo `csp-endpoint`).
+  - Endpoint de reporte CSP: `POST /api/security/csp-report` (exento de CSRF; acepta `application/csp-report` y `application/json`).
+
+- CORS estricto:
+  - Orígenes permitidos: `CORS_ALLOWED_ORIGINS` (o `FRONTEND_URL`), separados por comas.
+  - Métodos: `GET, POST, PUT, PATCH, DELETE, OPTIONS`.
+  - Cabeceras permitidas: `Content-Type, Authorization, x-csrf-token`.
+
+- Otras cabeceras:
+  - `Cross-Origin-Resource-Policy: same-site` (CORP).
+  - `X-Frame-Options: DENY`.
+  - `X-Content-Type-Options: nosniff`.
+  - `Referrer-Policy: no-referrer`.
+  - `Strict-Transport-Security` (en producción bajo HTTPS).
+
+### Reportes CSP
+- Los reportes se guardan en `logs/security.log` con tipo `csp_report`.
+- Ejemplo de envío manual (PowerShell):
+  ```powershell
+  curl.exe -i -X POST "http://localhost:<PORT>/api/security/csp-report" -H "Content-Type: application/csp-report" --data-binary "@csp-report.json"
+  ```
+  Donde `csp-report.json` contiene un objeto válido con la clave `csp-report`.
+
+### CSRF (double-submit cookie)
+- Obtener token: `GET /api/csrf-token`. El servidor emite cookie `XSRF-TOKEN`.
+- Enviar el mismo token en cabecera `x-csrf-token` para `POST, PUT, PATCH, DELETE`.
+- Protegidas rutas de negocio: `/api/auth`, `/api/users`, `/api/products`, `/api/subscriptions`, `/api/orders`, `/api/payments`, `/api/farmers`, `/api/admin`.
+- El endpoint de reportes CSP está excluido.
+
+### Variables de entorno
+- `CORS_ALLOWED_ORIGINS`: lista de orígenes permitidos.
+- `FRONTEND_URL`: origen único (fallback si no hay lista).
+- `CSP_REPORT_URL`: URL del endpoint de reporte CSP (opcional).
+- `ENCRYPTION_SECRET` o `JWT_SECRET`: secreto para firmar token CSRF.
+
+### Verificación rápida
+- Salud y cabeceras: `curl.exe -i http://localhost:<PORT>/api/health`.
+- Preflight bloqueado: enviar `Origin: http://example.com` debe fallar.
+- Preflight permitido: `Origin: http://localhost:3000` retorna `204` y `Access-Control-Allow-Origin`.
+
 ## 🤝 Contribución
 
 1. Fork el proyecto

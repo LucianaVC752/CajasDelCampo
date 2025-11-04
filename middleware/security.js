@@ -110,6 +110,10 @@ function csrfTokenRoute(req, res) {
 function csrfProtect(req, res, next) {
   // Only protect state-changing methods
   if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+  // Exempt CSP report endpoint from CSRF protection (mounted under /api)
+  if (req.baseUrl === '/api' && req.path && req.path.startsWith('/security/csp-report')) {
+    return next();
+  }
   const cookies = parseCookies(req);
   const headerToken = req.headers[TOKEN_HEADER];
   const cookieToken = cookies[TOKEN_COOKIE];
